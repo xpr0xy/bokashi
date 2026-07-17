@@ -99,33 +99,43 @@ export function createRecipes(count = 120) {
 export const RECIPES = createRecipes();
 
 export function normaliseState(input = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const state = structuredClone(DEFAULT_STATE);
-  Object.assign(state, input);
-  state.mode = MODES.includes(state.mode) ? state.mode : DEFAULT_STATE.mode;
-  state.gradientType = ['linear', 'radial', 'conic'].includes(state.gradientType) ? state.gradientType : 'linear';
-  state.angle = clamp(state.angle, 0, 360);
-  state.centerX = clamp(state.centerX, 0, 100);
-  state.centerY = clamp(state.centerY, 0, 100);
-  state.blur = clamp(state.blur, 0, 180);
-  state.pattern = DITHER_PATTERNS.includes(state.pattern) ? state.pattern : DEFAULT_STATE.pattern;
-  state.recipe = clamp(Math.floor(state.recipe), 0, RECIPES.length - 1);
-  state.monoBase = clamp(Math.floor(state.monoBase), 0, COLORS.length - 1);
-  state.cubeSpeed = clamp(state.cubeSpeed, 0.1, 1.5);
-  const planeRotation = input.planeRotation && typeof input.planeRotation === 'object' ? input.planeRotation : DEFAULT_STATE.planeRotation;
-  state.planeRotation = {
-    x: clamp(planeRotation.x, -1.4, 1.4),
-    y: Number.isFinite(Number(planeRotation.y)) ? Number(planeRotation.y) : DEFAULT_STATE.planeRotation.y,
+  const finite = (value, fallback) => {
+    if (value === null || value === '' || typeof value === 'boolean') return fallback;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
   };
-  const planeSelected = Number(input.planeSelected);
-  state.planeSelected = input.planeSelected == null || !Number.isInteger(planeSelected) || planeSelected < 0 || planeSelected >= COLORS.length
+  state.mode = MODES.includes(source.mode) ? source.mode : DEFAULT_STATE.mode;
+  state.gradientType = ['linear', 'radial', 'conic'].includes(source.gradientType) ? source.gradientType : DEFAULT_STATE.gradientType;
+  state.angle = clamp(finite(source.angle, DEFAULT_STATE.angle), 0, 360);
+  state.centerX = clamp(finite(source.centerX, DEFAULT_STATE.centerX), 0, 100);
+  state.centerY = clamp(finite(source.centerY, DEFAULT_STATE.centerY), 0, 100);
+  state.blur = clamp(finite(source.blur, DEFAULT_STATE.blur), 0, 180);
+  state.pattern = DITHER_PATTERNS.includes(source.pattern) ? source.pattern : DEFAULT_STATE.pattern;
+  state.recipe = clamp(Math.floor(finite(source.recipe, DEFAULT_STATE.recipe)), 0, RECIPES.length - 1);
+  state.monoBase = clamp(Math.floor(finite(source.monoBase, DEFAULT_STATE.monoBase)), 0, COLORS.length - 1);
+  state.cubeSpeed = clamp(finite(source.cubeSpeed, DEFAULT_STATE.cubeSpeed), 0.1, 1.5);
+  const planeRotation = source.planeRotation && typeof source.planeRotation === 'object' && !Array.isArray(source.planeRotation)
+    ? source.planeRotation
+    : DEFAULT_STATE.planeRotation;
+  state.planeRotation = {
+    x: clamp(finite(planeRotation.x, DEFAULT_STATE.planeRotation.x), -1.4, 1.4),
+    y: finite(planeRotation.y, DEFAULT_STATE.planeRotation.y),
+  };
+  const planeSelected = Number(source.planeSelected);
+  state.planeSelected = source.planeSelected == null || !Number.isInteger(planeSelected) || planeSelected < 0 || planeSelected >= COLORS.length
     ? null
     : planeSelected;
-  state.stops = Array.isArray(input.stops) && input.stops.length >= 2
-    ? input.stops.slice(0, 5).map((stop, index, all) => ({
-      color: clamp(Math.floor(stop.color), 0, COLORS.length - 1),
-      position: clamp(stop.position ?? (index / (all.length - 1)) * 100, 0, 100),
-    })).sort((a, b) => a.position - b.position)
-    : state.stops;
+  if (Array.isArray(source.stops)) {
+    const stops = source.stops.slice(0, 5).filter((stop) => stop && typeof stop === 'object');
+    if (stops.length >= 2) {
+      state.stops = stops.map((stop, index, all) => ({
+        color: clamp(Math.floor(finite(stop.color, DEFAULT_STATE.stops[Math.min(index, DEFAULT_STATE.stops.length - 1)].color)), 0, COLORS.length - 1),
+        position: clamp(finite(stop.position, (index / (all.length - 1)) * 100), 0, 100),
+      })).sort((a, b) => a.position - b.position);
+    }
+  }
   return state;
 }
 
@@ -208,11 +218,17 @@ function canvasGradient(ctx, state, width, height) {
   if (type === 'radial') {
     const x = width * ((recipe.centerX ?? state.centerX) / 100);
     const y = height * ((recipe.centerY ?? state.centerY) / 100);
-    gradient = ctx.createRadialGradient(x, y, 0, x, y, Math.hypot(width, height) * 0.7);
+    const radius = Math.max(
+      Math.hypot(x, y),
+      Math.hypot(width - x, y),
+      Math.hypot(x, height - y),
+      Math.hypot(width - x, height - y),
+    );
+    gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
   } else if (type === 'conic' && ctx.createConicGradient) {
     gradient = ctx.createConicGradient(angle, width * ((recipe.centerX ?? state.centerX) / 100), height * ((recipe.centerY ?? state.centerY) / 100));
   } else {
-    const length = Math.abs(width * Math.sin(angle)) + Math.abs(height * Math.cos(angle));
+    const length = Math.abs(width * Math.cos(angle)) + Math.abs(height * Math.sin(angle));
     const x = Math.cos(angle) * length / 2;
     const y = Math.sin(angle) * length / 2;
     gradient = ctx.createLinearGradient(width / 2 - x, height / 2 - y, width / 2 + x, height / 2 + y);

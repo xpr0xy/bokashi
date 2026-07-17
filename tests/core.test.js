@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { COLORS } from '../src/colors.js';
 import {
   DEFAULT_STATE, RECIPES, clamp, createRecipes, cssForState, extractPaletteFromImage,
-  feelingPalette, nearestColour, normaliseState, rgbaToTiff, stateToToken, tokenToState,
+  feelingPalette, nearestColour, normaliseState, renderPreview, rgbaToTiff, stateToToken, tokenToState,
 } from '../src/core.js';
 
 test('catalogue and recipe inventory are complete', () => {
@@ -39,6 +39,39 @@ test('invalid state is clamped without throwing', () => {
   assert.equal(state.stops[0].color, 0);
   assert.equal(state.stops[1].color, 249);
   assert.equal(clamp('7', 0, 5), 5);
+});
+
+test('invalid and partial state falls back without throwing or producing undefined fields', () => {
+  const malformedStops = normaliseState({ stops: [null, null], angle: null, centerX: 'bad' });
+  assert.deepEqual(malformedStops.stops, DEFAULT_STATE.stops);
+  assert.equal(malformedStops.angle, DEFAULT_STATE.angle);
+  assert.equal(malformedStops.centerX, DEFAULT_STATE.centerX);
+
+  const compact = { m: 'mono', o: 12 };
+  const token = btoa(JSON.stringify(compact)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+  const restored = tokenToState(token);
+  assert.equal(restored.mode, 'mono');
+  assert.deepEqual(restored.stops, DEFAULT_STATE.stops);
+  assert.equal(restored.angle, DEFAULT_STATE.angle);
+});
+
+test('canvas gradient geometry spans rectangular frames and radial farthest corners', () => {
+  const calls = {};
+  const gradient = { addColorStop() {} };
+  const context = {
+    clearRect() {}, fillRect() {},
+    createLinearGradient(...args) { calls.linear = args; return gradient; },
+    createRadialGradient(...args) { calls.radial = args; return gradient; },
+  };
+  renderPreview(context, normaliseState({ gradientType: 'linear', angle: 0 }), 400, 200);
+  assert.ok(Math.abs(calls.linear[0] - 200) < 1e-9);
+  assert.ok(Math.abs(calls.linear[1] - 200) < 1e-9);
+  assert.ok(Math.abs(calls.linear[2] - 200) < 1e-9);
+  assert.ok(Math.abs(calls.linear[3]) < 1e-9);
+
+  renderPreview(context, normaliseState({ gradientType: 'radial', centerX: 25, centerY: 25 }), 400, 200);
+  assert.deepEqual(calls.radial.slice(0, 5), [100, 50, 0, 100, 50]);
+  assert.ok(Math.abs(calls.radial[5] - Math.hypot(300, 150)) < 1e-9);
 });
 
 test('CSS output covers linear, radial, conic, and air', () => {
