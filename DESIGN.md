@@ -26,8 +26,18 @@ BOKASHI is a colour instrument, not a gallery homepage. The mutable artwork occu
 ## artwork
 The preview is the product. Minimum 58vh desktop and 42vh mobile. It supports linear, radial, conic, air, mono, dither, cube, image, and 3D-plane rendering. A small factual caption shows type, stops, angle, and dimensions.
 
+The canvas is not a passive poster. Editable gradient modes expose a restrained stop rail over the artwork; radial and conic modes expose a draggable centre handle. Browse modes may shorten the artwork surface to reveal their ledger within the viewport. Catalogue mode renders a direct-select colour mosaic instead of recycling the current gradient. Analysis modes preserve visible evidence of their source.
+
+## history and truthfulness
+- Bounded undo/redo is part of the instrument, with keyboard shortcuts and disabled states.
+- Controls expose only parameters used by the active renderer. Dither shows two endpoints, not decorative extra stops.
+- Export options are disabled when the active mode cannot honestly produce that format. Raster-backed SVG is labelled as such.
+- Shared state includes every visible reproducible parameter, including colour-plane orientation and selection.
+
 ## controls
-Buttons are hard rectangles with 1px rules, 44px touch height on mobile, 36px desktop. Active mode inverts ink/paper. Focus uses a 2px blue outline. Colour stops show kanji, romaji, hex, and position.
+Buttons are hard rectangles with 1px rules, 44px touch height on mobile, 36px desktop. Active mode inverts ink/paper. Focus uses a 2px blue outline. Colour stops show kanji, romaji, hex, and position. Destructive, disclosure, favourite, and close controls obey the same mobile target minimum.
+
+On mobile, identity compresses before the instrument does. The masthead must not consume the first viewport, and horizontal mode navigation must visibly signal that more modes continue off-screen.
 
 ## motion
 Only output-state transitions and cube animation move. No entrance stagger. Respect reduced motion. Dither and exports are deterministic.

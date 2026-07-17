@@ -2,7 +2,7 @@ import './style.css';
 import { COLORS } from './colors.js';
 import {
   DEFAULT_STATE, MODES, DITHER_PATTERNS, RECIPES, clamp, contrastText, cssForState,
-  extractPaletteFromImage, feelingPalette, normaliseState, renderPreview, rgbaToTiff,
+  extractPaletteFromImage, feelingPalette, getModeStops, normaliseState, renderPreview, rgbaToTiff,
   stateToToken, tokenToState,
 } from './core.js';
 
@@ -17,12 +17,21 @@ const fromStorage = (() => {
   try { return JSON.parse(localStorage.getItem('bokashi-state') || 'null'); } catch { return null; }
 })();
 let state = normaliseState(fromHash || fromStorage || DEFAULT_STATE);
-let favourites = new Set(JSON.parse(localStorage.getItem('bokashi-favourites') || '[]'));
-let selectedPlanePoint = null;
+let favourites = (() => {
+  try {
+    const value = JSON.parse(localStorage.getItem('bokashi-favourites') || '[]');
+    return new Set(Array.isArray(value) ? value.filter((index) => Number.isInteger(index) && index >= 0 && index < COLORS.length) : []);
+  } catch { return new Set(); }
+})();
 let planePoints = [];
 let animationFrame = null;
 let dragStart = null;
+let stageDrag = null;
 let toastTimer = null;
+let sampledImage = null;
+let analysisStatus = { image: '', audio: '' };
+let undoStack = [structuredClone(state)];
+let redoStack = [];
 
 app.innerHTML = `
   <header class="masthead">
@@ -32,6 +41,10 @@ app.innerHTML = `
     </div>
     <p class="masthead-note">Build, inspect, sample and export gradients from a source-attributed Japanese colour catalogue.</p>
     <div class="masthead-actions">
+      <div class="history-actions" role="group" aria-label="History">
+        <button class="quiet-button icon-button" id="undo" type="button" aria-label="Undo" title="Undo (⌘Z)" disabled>↶</button>
+        <button class="quiet-button icon-button" id="redo" type="button" aria-label="Redo" title="Redo (⇧⌘Z)" disabled>↷</button>
+      </div>
       <button class="quiet-button" id="randomise" type="button">Mutate</button>
       <button class="quiet-button" id="share-state" type="button">Copy state URL</button>
       <button class="ink-button" id="open-export" type="button" aria-expanded="false" aria-controls="export-panel">Export</button>
@@ -41,11 +54,15 @@ app.innerHTML = `
     <nav class="mode-rail" aria-label="Instrument modes">
       <p class="rail-index">MODE</p>
       ${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span>${String(index + 1).padStart(2, '0')}</span>${MODE_LABELS[mode]}</button>`).join('')}
+      <span class="mode-more" aria-hidden="true">→</span>
     </nav>
     <section class="stage-column" aria-label="Gradient output">
       <div class="preview-stage" id="preview-stage">
         <canvas id="preview" aria-label="Current gradient preview"></canvas>
         <div class="stage-crosshair" aria-hidden="true"></div>
+        <div class="stage-direct-controls" id="stage-direct-controls" aria-label="Direct canvas controls"></div>
+        <div class="source-evidence" id="source-evidence" hidden></div>
+        <div class="plane-legend" id="plane-legend" hidden aria-hidden="true"><span>HUE</span><span>SATURATION</span><span>LIGHTNESS</span></div>
       </div>
       <div class="stage-caption">
         <span id="caption-mode">MAKE / LINEAR</span>
@@ -62,15 +79,21 @@ app.innerHTML = `
       <div id="controls"></div>
       <section class="export-panel" id="export-panel" hidden>
         <div class="section-heading"><h2>Export</h2><button type="button" id="close-export" aria-label="Close export panel">×</button></div>
+        <div class="export-presets" role="group" aria-label="Export size presets">
+          <button type="button" data-export-size="1600x900">16:9</button>
+          <button type="button" data-export-size="2048x2048">Square</button>
+          <button type="button" data-export-size="1080x1920">Story</button>
+          <button type="button" data-export-size="3840x2160">4K</button>
+        </div>
         <div class="field-pair">
           <label>Width<input id="export-width" type="number" min="64" max="4096" step="64" value="1600"></label>
-          <label>Height<input id="export-height" type="number" min="64" max="4096" step="64" value="1000"></label>
+          <label>Height<input id="export-height" type="number" min="64" max="4096" step="64" value="900"></label>
         </div>
         <label class="check-row"><input id="export-labels" type="checkbox"> Add specimen label</label>
         <div class="export-grid">
           ${['png', 'jpg', 'tiff', 'svg', 'css', 'json'].map((format) => `<button type="button" data-export="${format}">${format.toUpperCase()}</button>`).join('')}
         </div>
-        <p class="microcopy">Raster exports render locally. No image leaves this browser.</p>
+        <p class="microcopy" id="export-note">Raster exports render locally. No image leaves this browser.</p>
       </section>
     </aside>
   </main>
@@ -103,6 +126,32 @@ function persist() {
   history.replaceState(null, '', `${location.pathname}${location.search}#s=${stateToToken(state)}`);
 }
 
+function updateHistoryButtons() {
+  document.querySelector('#undo').disabled = undoStack.length <= 1;
+  document.querySelector('#redo').disabled = redoStack.length === 0;
+}
+
+function recordHistory() {
+  const current = stateToToken(state);
+  if (stateToToken(undoStack.at(-1)) === current) return;
+  undoStack.push(structuredClone(state));
+  if (undoStack.length > 60) undoStack.shift();
+  redoStack = [];
+  updateHistoryButtons();
+}
+
+function travelHistory(direction) {
+  if (direction < 0 && undoStack.length > 1) {
+    redoStack.push(undoStack.pop());
+    state = structuredClone(undoStack.at(-1));
+  } else if (direction > 0 && redoStack.length) {
+    state = structuredClone(redoStack.pop());
+    undoStack.push(structuredClone(state));
+  } else return;
+  commit({ record: false });
+  showToast(direction < 0 ? 'Undone' : 'Redone');
+}
+
 function updateNav() {
   document.querySelectorAll('[data-mode]').forEach((button) => {
     const active = button.dataset.mode === state.mode;
@@ -112,14 +161,16 @@ function updateNav() {
   document.querySelector('#mode-readout').textContent = MODE_LABELS[state.mode].toUpperCase();
 }
 
-function stopRows() {
-  return state.stops.map((stop, index) => {
+function stopRows(indices = state.stops.map((_, index) => index), { positions = true } = {}) {
+  return indices.map((index, order) => {
+    const stop = state.stops[index];
     const colour = COLORS[stop.color];
-    return `<div class="stop-row" data-stop="${index}">
-      <button class="swatch-button" type="button" data-open-colour="${index}" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}" aria-label="${colour.kanji}, choose colour for stop ${index + 1}">${colour.kanji}</button>
+    const displayIndex = order + 1;
+    return `<div class="stop-row${positions ? '' : ' no-position'}" data-stop="${index}">
+      <button class="swatch-button" type="button" data-open-colour="${index}" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}" aria-label="${colour.kanji}, choose colour for ${state.mode === 'dither' ? 'endpoint' : 'stop'} ${displayIndex}">${colour.kanji}</button>
       <div><strong>${colour.romaji}</strong><code>${colour.hex}</code></div>
-      <label>POS<input type="number" min="0" max="100" value="${Math.round(stop.position)}" data-stop-position="${index}"></label>
-      <button type="button" data-remove-stop="${index}" aria-label="Remove stop ${index + 1}" ${state.stops.length <= 2 ? 'disabled' : ''}>×</button>
+      ${positions ? `<label>POS<input type="number" min="0" max="100" step="1" value="${Math.round(stop.position)}" data-stop-position="${index}"></label>` : ''}
+      <button class="remove-stop" type="button" data-remove-stop="${index}" aria-label="Remove ${state.mode === 'dither' ? 'endpoint' : 'stop'} ${displayIndex}" ${state.stops.length <= 2 ? 'disabled' : ''}>×</button>
     </div>`;
   }).join('');
 }
@@ -160,18 +211,19 @@ function renderControls() {
       <button class="colour-hero" data-open-mono type="button" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}"><strong>${colour.romaji}</strong><code>${colour.hex}</code></button>
       ${commonGeometry()}</div>`;
   } else if (state.mode === 'air') {
-    controls.innerHTML = makerControls(`<div class="control-group"><div class="section-heading"><h2>Atmosphere</h2><span>${state.blur}px</span></div><label>Diffusion<input type="range" min="0" max="180" value="${state.blur}" data-state="blur"></label></div>`);
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Atmosphere</h2><span>${state.blur}px</span></div><label>Diffusion<input type="range" min="0" max="180" value="${state.blur}" data-state="blur"></label><div class="field-pair"><label>Origin X<input type="number" min="0" max="100" value="${Math.round(state.centerX)}" data-state="centerX"></label><label>Origin Y<input type="number" min="0" max="100" value="${Math.round(state.centerY)}" data-state="centerY"></label></div></div><div class="control-group"><div class="section-heading"><h2>Colour fields</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>`;
   } else if (state.mode === 'dither') {
-    controls.innerHTML = `${commonGeometry()}<div class="control-group"><div class="section-heading"><h2>Two-colour matrix</h2><span>${state.pattern}</span></div><div class="stop-list">${stopRows()}</div><label>Pattern<select data-state="pattern">${DITHER_PATTERNS.map((pattern) => `<option ${pattern === state.pattern ? 'selected' : ''}>${pattern}</option>`).join('')}</select></label></div>`;
+    const endpointIndices = state.stops.length > 1 ? [0, state.stops.length - 1] : [0];
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Direction</h2><span>${state.angle}°</span></div><label>Angle <output>${state.angle}°</output><input type="range" min="0" max="360" value="${state.angle}" data-state="angle"></label></div><div class="control-group"><div class="section-heading"><h2>Two-colour matrix</h2><span>${state.pattern}</span></div><p class="microcopy">The matrix uses two ink endpoints across the selected direction.</p><div class="stop-list">${stopRows(endpointIndices, { positions: false })}</div><label>Pattern<select data-state="pattern">${DITHER_PATTERNS.map((pattern) => `<option ${pattern === state.pattern ? 'selected' : ''}>${pattern}</option>`).join('')}</select></label></div>`;
   } else if (state.mode === 'cube') {
-    controls.innerHTML = `${makerControls()}<div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div><label>Speed<input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label></div>`;
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Sequence colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div><div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div><label>Speed<input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label></div>`;
   } else if (state.mode === 'image') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div><label class="drop-zone">Choose image<input id="image-input" type="file" accept="image/*"></label><p class="microcopy" id="image-status">Extract six dominant colours and match them to the catalogue.</p></div>
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div><label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status">${analysisStatus.image || 'Extract six dominant colours and match them to the catalogue.'}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
       <div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button></div>
-      <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone">Choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status">Maps amplitude, density and transient shape to colour indices.</p></div>
+      <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>
       ${makerControls()}`;
   } else if (state.mode === 'plane') {
-    const selected = selectedPlanePoint == null ? null : COLORS[selectedPlanePoint];
+    const selected = state.planeSelected == null ? null : COLORS[state.planeSelected];
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Colour plane</h2><span>H / S / L</span></div><p>Drag the field to rotate. Use arrow keys when the field is focused. Select a point to inspect it.</p>${selected ? `<button class="colour-hero" type="button" data-plane-use style="--swatch:${selected.hex};--swatch-text:${contrastText(selected.hex)}"><span>${selected.kanji}</span><strong>${selected.romaji}</strong><code>${selected.hex}</code><small>Use in maker</small></button>` : '<p class="plane-empty">No point selected.</p>'}</div>`;
   } else {
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Catalogue</h2><span>${COLORS.length}</span></div><label>Search<input id="colour-search" type="search" placeholder="kanji, romaji or #hex" autocomplete="off"></label><label class="check-row"><input id="favourites-only" type="checkbox"> Favourites only</label></div>`;
@@ -206,10 +258,70 @@ function renderLedger(filter = '') {
 }
 
 function renderCaption() {
-  const type = state.mode === 'traditional' ? RECIPES[state.recipe].type : state.gradientType;
-  document.querySelector('#caption-mode').textContent = `${MODE_LABELS[state.mode].toUpperCase()} / ${type.toUpperCase()}`;
-  document.querySelector('#caption-stops').textContent = `${state.mode === 'traditional' ? RECIPES[state.recipe].stops.length : state.stops.length} STOPS`;
+  const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : null;
+  const detail = {
+    traditional: recipe?.type,
+    mono: 'TONAL SCALE',
+    air: 'DIFFUSION',
+    dither: state.pattern,
+    cube: 'SEQUENCE',
+    image: sampledImage ? 'SAMPLED SOURCE' : 'SOURCE → PALETTE',
+    plane: 'HSL SPACE',
+    catalogue: '250-SWATCH MOSAIC',
+  }[state.mode] || state.gradientType;
+  document.querySelector('#caption-mode').textContent = `${MODE_LABELS[state.mode].toUpperCase()} / ${detail.toUpperCase()}`;
+  const stopText = state.mode === 'plane'
+    ? (state.planeSelected == null ? 'NO SELECTION' : COLORS[state.planeSelected].romaji.toUpperCase())
+    : state.mode === 'catalogue'
+      ? `${favourites.size} SAVED`
+      : `${state.mode === 'traditional' ? recipe.stops.length : state.stops.length} STOPS`;
+  document.querySelector('#caption-stops').textContent = stopText;
   document.querySelector('#caption-size').textContent = `${canvas.width} × ${canvas.height}`;
+  previewStage.dataset.mode = state.mode;
+  previewStage.closest('.stage-column').classList.toggle('is-browse', ['traditional', 'catalogue'].includes(state.mode));
+  document.querySelector('#plane-legend').hidden = state.mode !== 'plane';
+  previewStage.setAttribute('aria-label', state.mode === 'plane'
+    ? 'Interactive HSL colour plane. Drag to rotate, use arrow keys, or select a point.'
+    : state.mode === 'catalogue'
+      ? 'Interactive catalogue mosaic. Select any cell to open that colour in the maker.'
+      : `Current ${MODE_LABELS[state.mode]} preview`);
+}
+
+function renderStageDirectControls() {
+  const host = document.querySelector('#stage-direct-controls');
+  if (state.mode === 'air') {
+    host.hidden = false;
+    host.innerHTML = `<button class="stage-center-handle" type="button" data-stage-center style="left:${state.centerX}%;top:${state.centerY}%" aria-label="Atmosphere origin at ${Math.round(state.centerX)} by ${Math.round(state.centerY)} percent. Drag to reposition."><span></span></button>`;
+    return;
+  }
+  const editable = ['make', 'image'].includes(state.mode);
+  if (!editable) { host.innerHTML = ''; host.hidden = true; return; }
+  host.hidden = false;
+  const indices = state.stops.map((_, index) => index);
+  const handles = [...new Set(indices)].map((index, order) => {
+    const stop = state.stops[index];
+    const colour = COLORS[stop.color];
+    const label = state.mode === 'dither' ? 'Endpoint' : 'Stop';
+    return `<button class="stage-stop-handle" type="button" data-stage-stop="${index}" style="left:${stop.position}%;--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}" aria-label="${label} ${order + 1}, ${colour.romaji} at ${Math.round(stop.position)} percent. Drag horizontally to reposition." title="${colour.romaji} · ${Math.round(stop.position)}%"><span>${order + 1}</span></button>`;
+  }).join('');
+  const center = state.gradientType === 'linear' ? '' : `<button class="stage-center-handle" type="button" data-stage-center style="left:${state.centerX}%;top:${state.centerY}%" aria-label="Gradient centre at ${Math.round(state.centerX)} by ${Math.round(state.centerY)} percent. Drag to reposition."><span></span></button>`;
+  host.innerHTML = `<div class="stage-stop-track" aria-label="Gradient stop rail"><div class="stage-stop-line"></div>${handles}</div>${center}`;
+}
+
+function renderSourceEvidence() {
+  const host = document.querySelector('#source-evidence');
+  if (state.mode !== 'image' || !sampledImage) { host.hidden = true; host.replaceChildren(); return; }
+  const image = document.createElement('img');
+  image.src = sampledImage.url;
+  image.alt = '';
+  const copy = document.createElement('div');
+  const strong = document.createElement('strong');
+  strong.textContent = sampledImage.name;
+  const span = document.createElement('span');
+  span.textContent = `${sampledImage.width} × ${sampledImage.height} · source sampled locally`;
+  copy.append(strong, span);
+  host.replaceChildren(image, copy);
+  host.hidden = false;
 }
 
 function resizeCanvas() {
@@ -231,12 +343,17 @@ function renderCanvas(time = performance.now()) {
   }
 }
 
-function commit({ controlsOnly = false, ledgerOnly = false } = {}) {
+function commit({ controlsOnly = false, ledgerOnly = false, record = true } = {}) {
+  if (record) recordHistory();
   persist();
   updateNav();
   if (!ledgerOnly) renderControls();
   renderLedger();
   if (!controlsOnly) renderCanvas();
+  renderStageDirectControls();
+  renderSourceEvidence();
+  updateHistoryButtons();
+  updateExportAvailability();
 }
 
 function colourPicker(title, onChoose) {
@@ -267,10 +384,11 @@ function bindControlInputs() {
       state[input.dataset.state] = input.type === 'range' || input.type === 'number' ? Number(input.value) : input.value;
       persist();
       renderCanvas();
+      renderStageDirectControls();
       const output = input.closest('label')?.querySelector('output');
       if (output) output.textContent = `${input.value}°`;
     });
-    input.addEventListener('change', () => renderControls());
+    input.addEventListener('change', () => { recordHistory(); renderControls(); });
   });
   controls.querySelectorAll('[data-stop-position]').forEach((input) => {
     input.addEventListener('change', () => {
@@ -281,6 +399,23 @@ function bindControlInputs() {
   });
   controls.querySelector('#image-input')?.addEventListener('change', handleImage);
   controls.querySelector('#audio-input')?.addEventListener('change', handleAudio);
+  controls.querySelectorAll('[data-drop-kind]').forEach((zone) => {
+    zone.addEventListener('dragover', (event) => { event.preventDefault(); zone.classList.add('is-dragging'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('is-dragging'));
+    zone.addEventListener('drop', (event) => {
+      event.preventDefault(); zone.classList.remove('is-dragging');
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      if (zone.dataset.dropKind === 'image') handleImage({ target: { files: [file] } });
+      else handleAudio({ target: { files: [file] } });
+    });
+  });
+  controls.querySelector('#clear-source')?.addEventListener('click', () => {
+    if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
+    sampledImage = null;
+    analysisStatus.image = '';
+    renderControls(); renderSourceEvidence();
+  });
   controls.querySelector('#generate-feeling')?.addEventListener('click', () => {
     const indices = feelingPalette(controls.querySelector('#feeling-input').value);
     applyPalette(indices);
@@ -298,25 +433,51 @@ function applyPalette(indices) {
   commit();
 }
 
+async function decodeImageFile(file) {
+  try { return await createImageBitmap(file); }
+  catch {
+    const url = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error('decode failed'));
+        element.src = url;
+      });
+      return image;
+    } finally { URL.revokeObjectURL(url); }
+  }
+}
+
 async function handleImage(event) {
   const file = event.target.files?.[0];
   const status = controls.querySelector('#image-status');
   if (!file) return;
-  if (!file.type.startsWith('image/')) { status.textContent = 'Choose a PNG, JPG, WebP, GIF, or other browser-readable image.'; return; }
+  if (!file.type.startsWith('image/')) {
+    analysisStatus.image = 'Choose a PNG, JPG, WebP, GIF, AVIF, or SVG image.';
+    status.textContent = analysisStatus.image;
+    return;
+  }
   status.textContent = 'Sampling image…';
   try {
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await decodeImageFile(file);
+    const width = bitmap.width || bitmap.naturalWidth;
+    const height = bitmap.height || bitmap.naturalHeight;
     const sample = document.createElement('canvas');
-    const ratio = Math.min(1, 180 / Math.max(bitmap.width, bitmap.height));
-    sample.width = Math.max(1, Math.round(bitmap.width * ratio));
-    sample.height = Math.max(1, Math.round(bitmap.height * ratio));
+    const ratio = Math.min(1, 180 / Math.max(width, height));
+    sample.width = Math.max(1, Math.round(width * ratio));
+    sample.height = Math.max(1, Math.round(height * ratio));
     const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
     sampleCtx.drawImage(bitmap, 0, 0, sample.width, sample.height);
     const indices = extractPaletteFromImage(sampleCtx.getImageData(0, 0, sample.width, sample.height));
+    if (indices.length < 2) throw new Error('not enough opaque colour data');
+    if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
+    sampledImage = { url: URL.createObjectURL(file), name: file.name, width, height };
+    analysisStatus.image = `${indices.length} matched colours extracted from ${file.name}.`;
     applyPalette(indices);
-    controls.querySelector('#image-status').textContent = `${indices.length} matched colours extracted from ${file.name}.`;
   } catch {
-    status.textContent = 'The browser could not decode that image. The previous gradient is unchanged.';
+    analysisStatus.image = 'That image could not be sampled. Try PNG, JPG, WebP, GIF, AVIF, or SVG.';
+    if (status) status.textContent = analysisStatus.image;
   }
 }
 
@@ -325,8 +486,9 @@ async function handleAudio(event) {
   const status = controls.querySelector('#audio-status');
   if (!file) return;
   status.textContent = 'Analysing waveform…';
+  let audioContext;
   try {
-    const audioContext = new AudioContext();
+    audioContext = new AudioContext();
     const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
     const data = buffer.getChannelData(0);
     const stride = Math.max(1, Math.floor(data.length / 80000));
@@ -343,11 +505,13 @@ async function handleAudio(event) {
     const density = crossings / samples;
     const base = Math.floor(clamp(rms * 900, 0, 249));
     const spread = Math.max(17, Math.floor(density * 9000));
+    analysisStatus.audio = `${file.name}: RMS ${rms.toFixed(3)} · peak ${peak.toFixed(3)} · density ${density.toFixed(3)}.`;
     applyPalette([base, (base + spread) % 250, Math.floor(peak * 249), (base + spread * 2) % 250]);
-    controls.querySelector('#audio-status').textContent = `${file.name}: RMS ${rms.toFixed(3)} / transient ${peak.toFixed(3)}.`;
-    await audioContext.close();
   } catch {
-    status.textContent = 'The browser could not decode that audio file. The previous gradient is unchanged.';
+    analysisStatus.audio = 'That audio file could not be decoded. Try WAV, MP3, M4A, OGG, or FLAC supported by this browser.';
+    if (status) status.textContent = analysisStatus.audio;
+  } finally {
+    if (audioContext && audioContext.state !== 'closed') await audioContext.close();
   }
 }
 
@@ -371,7 +535,7 @@ controls.addEventListener('click', (event) => {
     const recipe = RECIPES[state.recipe];
     state.stops = structuredClone(recipe.stops); state.gradientType = recipe.type; state.angle = recipe.angle; state.centerX = recipe.centerX; state.centerY = recipe.centerY; state.mode = 'make'; commit();
   }
-  if (target.hasAttribute('data-plane-use') && selectedPlanePoint != null) { state.stops[1].color = selectedPlanePoint; state.mode = 'make'; commit(); }
+  if (target.hasAttribute('data-plane-use') && state.planeSelected != null) { state.stops[1].color = state.planeSelected; state.mode = 'make'; commit(); }
 });
 
 document.querySelector('.mode-rail').addEventListener('click', (event) => {
@@ -380,6 +544,12 @@ document.querySelector('.mode-rail').addEventListener('click', (event) => {
   state.mode = button.dataset.mode;
   commit();
 });
+const modeRail = document.querySelector('.mode-rail');
+function updateModeContinuation() {
+  modeRail.classList.toggle('at-end', modeRail.scrollLeft + modeRail.clientWidth >= modeRail.scrollWidth - 4);
+}
+modeRail.addEventListener('scroll', updateModeContinuation, { passive: true });
+window.addEventListener('resize', updateModeContinuation);
 
 ledger.addEventListener('click', (event) => {
   const recipeButton = event.target.closest('[data-recipe]');
@@ -407,21 +577,59 @@ function mutate() {
 }
 
 document.querySelector('#randomise').addEventListener('click', mutate);
+document.querySelector('#undo').addEventListener('click', () => travelHistory(-1));
+document.querySelector('#redo').addEventListener('click', () => travelHistory(1));
+document.addEventListener('keydown', (event) => {
+  const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable;
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+    event.preventDefault(); travelHistory(event.shiftKey ? 1 : -1); return;
+  }
+  if (editing || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key.toLowerCase() === 'm') { event.preventDefault(); mutate(); }
+  if (event.key.toLowerCase() === 'e') { event.preventDefault(); toggleExport(true); }
+  if (/^[1-9]$/.test(event.key)) {
+    state.mode = MODES[Number(event.key) - 1];
+    commit();
+  }
+});
 document.querySelector('#share-state').addEventListener('click', async () => {
   persist();
   try { await navigator.clipboard.writeText(location.href); showToast('State URL copied'); }
   catch { showToast('Copy blocked — use the address bar'); }
 });
 
+function updateExportAvailability() {
+  const cssButton = document.querySelector('[data-export="css"]');
+  const cssSupported = !['dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+  cssButton.disabled = !cssSupported;
+  cssButton.title = cssSupported ? 'Copy CSS background' : `${MODE_LABELS[state.mode]} has no faithful CSS equivalent`;
+  const rasterBackedSvg = ['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) || state.gradientType === 'conic';
+  document.querySelector('#export-note').textContent = rasterBackedSvg
+    ? 'Raster exports render locally. SVG embeds the current rendered frame for this mode. No source leaves this browser.'
+    : 'Raster and vector exports render locally. No source leaves this browser.';
+}
+
 function toggleExport(open) {
   const panel = document.querySelector('#export-panel');
   panel.hidden = !open;
   document.querySelector('#open-export').setAttribute('aria-expanded', String(open));
-  if (open) panel.querySelector('input').focus();
+  updateExportAvailability();
+  if (open) {
+    panel.querySelector('input').focus();
+    if (matchMedia('(max-width: 680px)').matches) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 document.querySelector('#open-export').addEventListener('click', () => toggleExport(document.querySelector('#export-panel').hidden));
 document.querySelector('#close-export').addEventListener('click', () => toggleExport(false));
+document.querySelectorAll('[data-export-size]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const [width, height] = button.dataset.exportSize.split('x');
+    document.querySelector('#export-width').value = width;
+    document.querySelector('#export-height').value = height;
+    showToast(`${button.textContent.trim()} export size selected`);
+  });
+});
 
 function renderExportCanvas(width, height, labels) {
   const output = document.createElement('canvas');
@@ -436,7 +644,9 @@ function renderExportCanvas(width, height, labels) {
     outputCtx.fillStyle = '#171714';
     outputCtx.font = `${Math.max(13, width * 0.012)}px ui-monospace, monospace`;
     outputCtx.textBaseline = 'middle';
-    outputCtx.fillText(`BOKASHI / ${MODE_LABELS[state.mode].toUpperCase()} / ${cssForState(state).slice(0, 110)}`, width * 0.025, height - labelHeight / 2);
+    const cssSupported = !['dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+    const descriptor = cssSupported ? cssForState(state).slice(0, 110) : document.querySelector('#caption-mode').textContent;
+    outputCtx.fillText(`BOKASHI / ${MODE_LABELS[state.mode].toUpperCase()} / ${descriptor}`, width * 0.025, height - labelHeight / 2);
   }
   return output;
 }
@@ -450,11 +660,15 @@ function downloadBlob(blob, extension) {
 }
 
 function svgForCurrent(canvasOutput, width, height) {
-  const standard = !['dither', 'air', 'cube', 'plane'].includes(state.mode) && state.gradientType !== 'conic';
+  const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : state;
+  const type = recipe.type ?? state.gradientType;
+  const standard = !['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) && type !== 'conic';
   if (!standard) return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image width="100%" height="100%" href="${canvasOutput.toDataURL('image/png')}"/></svg>`;
-  const stops = state.stops.map((stop) => `<stop offset="${stop.position}%" stop-color="${COLORS[stop.color].hex}"/>`).join('');
-  if (state.gradientType === 'radial') return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><radialGradient id="g" cx="${state.centerX}%" cy="${state.centerY}%">${stops}</radialGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
-  const radians = (state.angle - 90) * Math.PI / 180;
+  const stops = getModeStops(state).map((stop) => `<stop offset="${stop.position}%" stop-color="${stop.hex ?? COLORS[stop.color].hex}"/>`).join('');
+  const centerX = recipe.centerX ?? state.centerX;
+  const centerY = recipe.centerY ?? state.centerY;
+  if (type === 'radial') return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><radialGradient id="g" cx="${centerX}%" cy="${centerY}%">${stops}</radialGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
+  const radians = ((recipe.angle ?? state.angle) - 90) * Math.PI / 180;
   const x = Math.cos(radians) * 50; const y = Math.sin(radians) * 50;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="${50 - x}%" y1="${50 - y}%" x2="${50 + x}%" y2="${50 + y}%">${stops}</linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
 }
@@ -491,17 +705,61 @@ document.querySelector('.export-grid').addEventListener('click', async (event) =
 
 previewStage.tabIndex = 0;
 previewStage.addEventListener('pointerdown', (event) => {
+  const stopHandle = event.target.closest('[data-stage-stop]');
+  const centerHandle = event.target.closest('[data-stage-center]');
+  if (stopHandle || centerHandle) {
+    event.preventDefault();
+    stageDrag = stopHandle
+      ? { type: 'stop', index: Number(stopHandle.dataset.stageStop) }
+      : { type: 'center' };
+    previewStage.setPointerCapture(event.pointerId);
+    return;
+  }
   if (state.mode !== 'plane') return;
   dragStart = { x: event.clientX, y: event.clientY, rotation: { ...state.planeRotation } };
   previewStage.setPointerCapture(event.pointerId);
 });
 previewStage.addEventListener('pointermove', (event) => {
+  if (stageDrag) {
+    const rect = previewStage.getBoundingClientRect();
+    if (stageDrag.type === 'center') {
+      state.centerX = Math.round(clamp((event.clientX - rect.left) / rect.width * 100, 0, 100));
+      state.centerY = Math.round(clamp((event.clientY - rect.top) / rect.height * 100, 0, 100));
+    } else {
+      const index = stageDrag.index;
+      const minimum = index > 0 ? state.stops[index - 1].position : 0;
+      const maximum = index < state.stops.length - 1 ? state.stops[index + 1].position : 100;
+      state.stops[index].position = Math.round(clamp((event.clientX - rect.left) / rect.width * 100, minimum, maximum));
+    }
+    persist(); renderCanvas(); renderStageDirectControls();
+    return;
+  }
   if (!dragStart || state.mode !== 'plane') return;
   state.planeRotation.y = dragStart.rotation.y + (event.clientX - dragStart.x) * 0.008;
   state.planeRotation.x = clamp(dragStart.rotation.x + (event.clientY - dragStart.y) * 0.008, -1.4, 1.4);
   renderCanvas();
 });
 previewStage.addEventListener('pointerup', (event) => {
+  if (stageDrag) {
+    stageDrag = null;
+    recordHistory(); persist(); renderControls(); renderStageDirectControls();
+    return;
+  }
+  if (state.mode === 'catalogue') {
+    const rect = canvas.getBoundingClientRect();
+    const columns = canvas.width >= canvas.height ? 25 : 10;
+    const rows = Math.ceil(COLORS.length / columns);
+    const column = clamp(Math.floor((event.clientX - rect.left) / rect.width * columns), 0, columns - 1);
+    const row = clamp(Math.floor((event.clientY - rect.top) / rect.height * rows), 0, rows - 1);
+    const index = row * columns + column;
+    if (index < COLORS.length) {
+      state.stops[1].color = index;
+      state.mode = 'make';
+      commit();
+      showToast(`${COLORS[index].romaji} opened in maker`);
+    }
+    return;
+  }
   if (state.mode !== 'plane') return;
   const moved = dragStart && Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) > 5;
   dragStart = null;
@@ -513,19 +771,40 @@ previewStage.addEventListener('pointerup', (event) => {
       const distance = Math.hypot(point.x - x, point.y - y);
       return distance < best.distance ? { index: point.index, distance } : best;
     }, { index: null, distance: Infinity });
-    if (nearest.distance < 28 * (canvas.width / rect.width)) { selectedPlanePoint = nearest.index; renderControls(); }
+    if (nearest.distance < 28 * (canvas.width / rect.width)) state.planeSelected = nearest.index;
   }
-  persist();
+  recordHistory(); persist(); renderCanvas(); renderControls();
+});
+document.querySelector('#stage-direct-controls').addEventListener('keydown', (event) => {
+  const stopHandle = event.target.closest('[data-stage-stop]');
+  const centerHandle = event.target.closest('[data-stage-center]');
+  if (!stopHandle && !centerHandle) return;
+  const delta = event.shiftKey ? 5 : 1;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+  event.preventDefault();
+  if (stopHandle) {
+    const index = Number(stopHandle.dataset.stageStop);
+    const direction = event.key === 'ArrowLeft' || event.key === 'ArrowDown' ? -delta : delta;
+    const minimum = index > 0 ? state.stops[index - 1].position : 0;
+    const maximum = index < state.stops.length - 1 ? state.stops[index + 1].position : 100;
+    state.stops[index].position = clamp(state.stops[index].position + direction, minimum, maximum);
+  } else {
+    if (event.key === 'ArrowLeft') state.centerX = clamp(state.centerX - delta, 0, 100);
+    if (event.key === 'ArrowRight') state.centerX = clamp(state.centerX + delta, 0, 100);
+    if (event.key === 'ArrowUp') state.centerY = clamp(state.centerY - delta, 0, 100);
+    if (event.key === 'ArrowDown') state.centerY = clamp(state.centerY + delta, 0, 100);
+  }
+  commit();
 });
 previewStage.addEventListener('keydown', (event) => {
-  if (state.mode !== 'plane') return;
+  if (event.target.closest('[data-stage-stop], [data-stage-center]') || state.mode !== 'plane') return;
   const delta = event.shiftKey ? 0.2 : 0.08;
   if (event.key === 'ArrowLeft') state.planeRotation.y -= delta;
   else if (event.key === 'ArrowRight') state.planeRotation.y += delta;
   else if (event.key === 'ArrowUp') state.planeRotation.x = clamp(state.planeRotation.x - delta, -1.4, 1.4);
   else if (event.key === 'ArrowDown') state.planeRotation.x = clamp(state.planeRotation.x + delta, -1.4, 1.4);
   else return;
-  event.preventDefault(); renderCanvas(); persist();
+  event.preventDefault(); recordHistory(); renderCanvas(); persist();
 });
 
 window.addEventListener('hashchange', () => {
@@ -536,4 +815,9 @@ new ResizeObserver(resizeCanvas).observe(previewStage);
 updateNav();
 renderControls();
 renderLedger();
+renderStageDirectControls();
+renderSourceEvidence();
+updateHistoryButtons();
+updateExportAvailability();
+updateModeContinuation();
 resizeCanvas();
