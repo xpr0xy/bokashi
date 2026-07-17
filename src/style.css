@@ -39,7 +39,7 @@ button { min-height: 38px; border: 1px solid var(--rule); border-radius: 0; back
 .ink-button { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 
 .workspace { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr) 19rem; min-height: calc(100vh - 7.5rem); border-bottom: 1px solid var(--ink); }
-.mode-rail { display: flex; flex-direction: column; border-right: 1px solid var(--ink); }
+.mode-rail { grid-column: 1; grid-row: 1 / span 2; display: flex; flex-direction: column; border-right: 1px solid var(--ink); }
 .rail-index { margin: 0; padding: 1rem; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: .64rem; letter-spacing: .14em; }
 .mode-rail button { display: grid; grid-template-columns: 2.2rem 1fr; align-items: center; min-height: 50px; padding: 0 .8rem; border: 0; border-bottom: 1px solid var(--rule); color: var(--muted); text-align: left; font-size: .78rem; }
 .mode-rail button span { font: .58rem var(--mono); }
@@ -47,7 +47,7 @@ button { min-height: 38px; border: 1px solid var(--rule); border-radius: 0; back
 .mode-rail button.is-active { background: var(--ink); color: var(--paper); }
 .mode-more { display: none; }
 
-.stage-column { min-width: 0; padding: 1.1rem 1.25rem; }
+.stage-column { grid-column: 2; grid-row: 1; min-width: 0; padding: 1.1rem 1.25rem; }
 .preview-stage { position: relative; width: 100%; height: auto; aspect-ratio: var(--frame-ratio, 16 / 9); overflow: hidden; border: 1px solid var(--ink); background: #ddd9ce; touch-action: none; }
 .stage-column.is-browse .preview-stage { height: auto; }
 .preview-stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
@@ -77,7 +77,7 @@ button { min-height: 38px; border: 1px solid var(--rule); border-radius: 0; back
 .stage-crosshair::after { top: calc(1rem - 8px); right: calc(1rem + 8px); width: 1px; height: 18px; }
 .stage-caption { display: flex; justify-content: space-between; gap: 1rem; padding: .7rem 0 1.1rem; color: var(--muted); font-size: .61rem; letter-spacing: .08em; }
 
-.inspector { border-left: 1px solid var(--ink); }
+.inspector { grid-column: 3; grid-row: 1 / span 2; border-left: 1px solid var(--ink); }
 .inspector-head { display: flex; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--ink); font-size: .62rem; letter-spacing: .12em; }
 .inspector-head p { margin: 0; color: var(--muted); }
 #controls { max-height: calc(100vh - 11.4rem); overflow: auto; }
@@ -136,7 +136,7 @@ label output { float: right; color: var(--ink); }
 .export-grid button:hover { background: var(--ink); color: var(--paper); }
 
 .ledger[hidden] { display: none; }
-.ledger { margin-top: 1.25rem; border-top: 1px solid var(--ink); }
+.ledger { grid-column: 2; grid-row: 2; min-width: 0; margin-top: 0; padding: 0 1.25rem 1.25rem; border-top: 1px solid var(--ink); }
 .ledger-head { display: flex; justify-content: space-between; gap: 2rem; align-items: baseline; padding: 1rem 0; }
 .ledger-head p { max-width: 35rem; margin: 0; color: var(--muted); font-size: .72rem; }
 .recipe-ledger { border-top: 1px solid var(--rule); }
@@ -176,7 +176,9 @@ label output { float: right; color: var(--ink); }
   .masthead { grid-template-columns: 1fr auto; }
   .masthead-note { display: none; }
   .workspace { grid-template-columns: 8.5rem minmax(0, 1fr); }
-  .inspector { grid-column: 1 / -1; display: grid; grid-template-columns: 8.5rem 1fr; border-top: 1px solid var(--ink); border-left: 0; }
+  .mode-rail { grid-row: 1; }
+  .inspector { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: 8.5rem 1fr; border-top: 1px solid var(--ink); border-left: 0; }
+  .ledger { grid-column: 1 / -1; grid-row: 3; }
   .inspector-head { border-right: 1px solid var(--ink); }
   #controls { max-height: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .control-group { border-right: 1px solid var(--rule); }
@@ -215,11 +217,17 @@ label output { float: right; color: var(--ink); }
   .control-group { border-right: 0; }
   .section-heading button, .export-presets button, .export-grid button { min-height: 44px; }
   button, input, select { min-height: 44px; }
+  input[type="range"], .stop-row input { min-height: 44px; }
+  .check-row { position: relative; min-height: 44px; padding-left: 44px; }
+  .check-row input[type="checkbox"] { position: absolute; top: 0; left: 0; width: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; opacity: 0; }
+  .check-row::before { content: ""; position: absolute; top: 12px; left: 12px; width: 18px; height: 18px; border: 1px solid var(--ink); background: var(--paper); pointer-events: none; }
+  .check-row:has(input:checked)::after { content: ""; position: absolute; top: 15px; left: 19px; width: 5px; height: 10px; transform: rotate(45deg); border-right: 2px solid var(--ink); border-bottom: 2px solid var(--ink); pointer-events: none; }
+  .check-row:has(input:focus-visible)::before { outline: 2px solid var(--ink); outline-offset: 2px; }
   .swatch-button { width: 44px; height: 44px; }
   .stop-row { grid-template-columns: 44px minmax(0, 1fr) 3.4rem 44px; }
   .stop-row.no-position { grid-template-columns: 44px minmax(0, 1fr) 44px; }
   .stop-row > button:last-child { min-height: 44px; }
-  .ledger { margin-top: 1rem; }
+  .ledger { order: 4; margin-top: 1rem; padding: 0 .75rem 1rem; }
   .ledger-head { display: block; }
   .ledger-head p { margin-top: .5rem; }
   .recipe-ledger button { grid-template-columns: 3.2rem minmax(6rem, 1fr) 4.5rem; gap: .6rem; }

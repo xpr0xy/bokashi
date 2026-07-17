@@ -74,8 +74,8 @@ app.innerHTML = `
         <span id="caption-size">LIVE CANVAS</span>
       </div>
       <p class="sr-only" id="ledger-status" role="status" aria-live="polite" aria-atomic="true"></p>
-      <section class="ledger" id="ledger"></section>
     </section>
+    <section class="ledger" id="ledger"></section>
     <aside class="inspector" aria-label="Gradient controls">
       <div class="inspector-head">
         <p>CONTROL</p>
@@ -838,9 +838,10 @@ previewStage.addEventListener('pointermove', (event) => {
       state.centerY = Math.round(clamp((event.clientY - rect.top) / rect.height * 100, 0, 100));
     } else {
       const index = stageDrag.index;
+      const trackRect = previewStage.querySelector('.stage-stop-track').getBoundingClientRect();
       const minimum = index > 0 ? state.stops[index - 1].position : 0;
       const maximum = index < state.stops.length - 1 ? state.stops[index + 1].position : 100;
-      state.stops[index].position = Math.round(clamp((event.clientX - rect.left) / rect.width * 100, minimum, maximum));
+      state.stops[index].position = Math.round(clamp((event.clientX - trackRect.left) / trackRect.width * 100, minimum, maximum));
     }
     persist(); renderCanvas(); renderStageDirectControls();
     return;
