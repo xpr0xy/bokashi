@@ -137,8 +137,8 @@ label output { float: right; color: var(--ink); }
 
 .site-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1rem 1.4rem 2rem; color: var(--muted); font-size: .58rem; line-height: 1.5; }
 .site-footer p { margin: 0; max-width: 42rem; }
-.toast { position: fixed; z-index: 30; right: 1rem; bottom: 1rem; transform: translateY(150%); padding: .8rem 1rem; border: 1px solid var(--paper); background: var(--ink); color: var(--paper); font: .62rem var(--mono); transition: transform 160ms ease; }
-.toast.is-visible { transform: translateY(0); }
+.toast { position: fixed; z-index: 30; right: 1rem; bottom: 1rem; transform: translateY(calc(100% + 2rem)); visibility: hidden; opacity: 0; pointer-events: none; padding: .8rem 1rem; border: 1px solid var(--paper); background: var(--ink); color: var(--paper); font: .62rem var(--mono); transition: transform 160ms ease, opacity 160ms ease, visibility 0s linear 160ms; }
+.toast.is-visible { transform: translateY(0); visibility: visible; opacity: 1; transition-delay: 0s; }
 
 @media (max-width: 1020px) {
   .masthead { grid-template-columns: 1fr auto; }
