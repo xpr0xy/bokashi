@@ -10,6 +10,9 @@ const MODE_LABELS = {
   make: 'Make', traditional: 'Recipes', mono: 'Mono', air: 'Air', dither: 'Dither',
   cube: 'Cube', image: 'Image', plane: '3D plane', catalogue: 'Colours',
 };
+const STATE_LIMITS = {
+  angle: [0, 360], centerX: [0, 100], centerY: [0, 100], blur: [0, 180], cubeSpeed: [0.1, 1.5],
+};
 
 const app = document.querySelector('#app');
 const fromHash = location.hash.startsWith('#s=') ? tokenToState(location.hash.slice(3)) : null;
@@ -58,7 +61,8 @@ app.innerHTML = `
     </nav>
     <section class="stage-column" aria-label="Gradient output">
       <div class="preview-stage" id="preview-stage">
-        <canvas id="preview" aria-label="Current gradient preview"></canvas>
+        <canvas id="preview" aria-label="Current gradient preview" aria-describedby="preview-summary"></canvas>
+        <p class="sr-only" id="preview-summary" role="status" aria-live="polite"></p>
         <div class="stage-crosshair" aria-hidden="true"></div>
         <div class="stage-direct-controls" id="stage-direct-controls" aria-label="Direct canvas controls"></div>
         <div class="source-evidence" id="source-evidence" hidden></div>
@@ -69,7 +73,8 @@ app.innerHTML = `
         <span id="caption-stops">3 STOPS</span>
         <span id="caption-size">LIVE CANVAS</span>
       </div>
-      <section class="ledger" id="ledger" aria-live="polite"></section>
+      <p class="sr-only" id="ledger-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <section class="ledger" id="ledger"></section>
     </section>
     <aside class="inspector" aria-label="Gradient controls">
       <div class="inspector-head">
@@ -159,6 +164,9 @@ function updateNav() {
     button.setAttribute('aria-current', active ? 'page' : 'false');
   });
   document.querySelector('#mode-readout').textContent = MODE_LABELS[state.mode].toUpperCase();
+  const mutateButton = document.querySelector('#randomise');
+  mutateButton.disabled = state.mode === 'catalogue';
+  mutateButton.title = state.mode === 'catalogue' ? 'The catalogue is a fixed source register' : `Mutate ${MODE_LABELS[state.mode]} output`;
 }
 
 function stopRows(indices = state.stops.map((_, index) => index), { positions = true } = {}) {
@@ -194,7 +202,15 @@ function makerControls(extra = '') {
     </div>${extra}`;
 }
 
+function focusSelectorForControl(element) {
+  if (!element || !controls.contains(element)) return null;
+  if (element.id) return `#${CSS.escape(element.id)}`;
+  const attribute = ['data-state', 'data-gradient-type', 'data-stop-position', 'data-open-colour', 'data-remove-stop', 'data-recipe-step', 'data-add-stop'].find((name) => element.hasAttribute(name));
+  return attribute ? `[${attribute}="${CSS.escape(element.getAttribute(attribute))}"]` : null;
+}
+
 function renderControls() {
+  const focusSelector = focusSelectorForControl(document.activeElement);
   if (state.mode === 'make') controls.innerHTML = makerControls();
   else if (state.mode === 'traditional') {
     const recipe = RECIPES[state.recipe];
@@ -218,9 +234,9 @@ function renderControls() {
   } else if (state.mode === 'cube') {
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Sequence colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div><div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div><label>Speed<input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label></div>`;
   } else if (state.mode === 'image') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div><label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status">${analysisStatus.image || 'Extract six dominant colours and match them to the catalogue.'}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
-      <div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button></div>
-      <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div><label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || 'Extract up to five dominant colours and match them to the catalogue.'}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
+      <div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button><p class="microcopy" id="feeling-status" role="status" aria-live="polite"></p></div>
+      <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status" role="status" aria-live="polite">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>
       ${makerControls()}`;
   } else if (state.mode === 'plane') {
     const selected = state.planeSelected == null ? null : COLORS[state.planeSelected];
@@ -229,6 +245,7 @@ function renderControls() {
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Catalogue</h2><span>${COLORS.length}</span></div><label>Search<input id="colour-search" type="search" placeholder="kanji, romaji or #hex" autocomplete="off"></label><label class="check-row"><input id="favourites-only" type="checkbox"> Favourites only</label></div>`;
   }
   bindControlInputs();
+  if (focusSelector) requestAnimationFrame(() => (controls.querySelector(focusSelector) || controls.querySelector('[data-add-stop]'))?.focus());
 }
 
 function renderLedger(filter = '') {
@@ -242,6 +259,7 @@ function renderLedger(filter = '') {
           : `conic-gradient(from ${recipe.angle}deg, ${recipe.stops.map((stop) => `${COLORS[stop.color].hex} ${stop.position}%`).join(',')})`;
       return `<button type="button" data-recipe="${index}" class="${index === state.recipe ? 'is-selected' : ''}"><span>${recipe.id}</span><i style="background:${css}"></i><strong>${recipe.family}</strong><small>${recipe.type}</small></button>`;
     }).join('')}</div>`;
+    document.querySelector('#ledger-status').textContent = `Recipe ${state.recipe + 1} of ${RECIPES.length} selected.`;
   } else if (state.mode === 'catalogue') {
     ledger.hidden = false;
     const query = filter.trim().toLowerCase();
@@ -251,9 +269,11 @@ function renderLedger(filter = '') {
       return !query || `${colour.romaji} ${colour.kanji} ${colour.hex}`.toLowerCase().includes(query);
     });
     ledger.innerHTML = `<div class="ledger-head"><h2>Colour register</h2><p>${matches.length} of ${COLORS.length} shown. Select a row to load the colour into the maker.</p></div><div class="colour-ledger">${matches.map(({ colour, index }) => `<div class="colour-row"><button type="button" data-colour="${index}"><i style="--swatch:${colour.hex}"></i><span>${colour.kanji}</span><strong>${colour.romaji}</strong><code>${colour.hex}</code></button><button type="button" data-favourite="${index}" aria-label="${favourites.has(index) ? 'Remove' : 'Add'} ${colour.romaji} ${favourites.has(index) ? 'from' : 'to'} favourites">${favourites.has(index) ? '★' : '☆'}</button></div>`).join('')}</div>`;
+    document.querySelector('#ledger-status').textContent = `${matches.length} colours found.`;
   } else {
     ledger.hidden = true;
     ledger.innerHTML = '';
+    document.querySelector('#ledger-status').textContent = '';
   }
 }
 
@@ -274,17 +294,41 @@ function renderCaption() {
     ? (state.planeSelected == null ? 'NO SELECTION' : COLORS[state.planeSelected].romaji.toUpperCase())
     : state.mode === 'catalogue'
       ? `${favourites.size} SAVED`
-      : `${state.mode === 'traditional' ? recipe.stops.length : state.stops.length} STOPS`;
+      : state.mode === 'dither'
+        ? '2 ENDPOINTS'
+        : `${state.mode === 'traditional' ? recipe.stops.length : state.stops.length} STOPS`;
   document.querySelector('#caption-stops').textContent = stopText;
   document.querySelector('#caption-size').textContent = `${canvas.width} × ${canvas.height}`;
   previewStage.dataset.mode = state.mode;
   previewStage.closest('.stage-column').classList.toggle('is-browse', ['traditional', 'catalogue'].includes(state.mode));
   document.querySelector('#plane-legend').hidden = state.mode !== 'plane';
+  previewStage.tabIndex = state.mode === 'plane' ? 0 : -1;
   previewStage.setAttribute('aria-label', state.mode === 'plane'
-    ? 'Interactive HSL colour plane. Drag to rotate, use arrow keys, or select a point.'
+    ? 'Interactive HSL colour plane. Arrow keys rotate, Enter selects the nearest central point, and N or P cycles colours.'
     : state.mode === 'catalogue'
       ? 'Interactive catalogue mosaic. Select any cell to open that colour in the maker.'
       : `Current ${MODE_LABELS[state.mode]} preview`);
+  const effectiveColours = state.mode === 'plane'
+    ? (state.planeSelected == null ? `${COLORS.length} catalogue points` : COLORS[state.planeSelected].hex)
+    : state.mode === 'catalogue'
+      ? `${COLORS.length} catalogue colours`
+      : state.mode === 'dither'
+        ? [state.stops[0], state.stops.at(-1)].map((stop) => COLORS[stop.color].hex).join(', ')
+        : getModeStops(state).map((stop) => stop.hex ?? COLORS[stop.color].hex).join(', ');
+  const parameters = state.mode === 'plane'
+    ? `rotation ${state.planeRotation.x.toFixed(2)} by ${state.planeRotation.y.toFixed(2)}${state.planeSelected == null ? ', no colour selected' : `, ${COLORS[state.planeSelected].romaji} selected`}`
+    : state.mode === 'catalogue'
+      ? `${COLORS.length} colour mosaic, ${favourites.size} favourites`
+      : state.mode === 'air'
+        ? `diffusion ${state.blur} pixels, origin ${Math.round(state.centerX)} by ${Math.round(state.centerY)} percent`
+        : state.mode === 'dither'
+          ? `${state.pattern} pattern at ${state.angle} degrees`
+          : state.mode === 'cube'
+            ? `sequence speed ${state.cubeSpeed.toFixed(2)} times`
+            : `${detail}, ${state.mode === 'traditional' ? recipe.angle : state.angle} degrees`;
+  const summary = `${MODE_LABELS[state.mode]} output. ${parameters}. Colours: ${effectiveColours}.`;
+  const summaryNode = document.querySelector('#preview-summary');
+  if (summaryNode.textContent !== summary) summaryNode.textContent = summary;
 }
 
 function renderStageDirectControls() {
@@ -357,6 +401,7 @@ function commit({ controlsOnly = false, ledgerOnly = false, record = true } = {}
 }
 
 function colourPicker(title, onChoose) {
+  const returnFocus = focusSelectorForControl(document.activeElement);
   const dialog = document.createElement('dialog');
   dialog.className = 'colour-dialog';
   dialog.innerHTML = `<form method="dialog"><div class="dialog-head"><h2>${title}</h2><button value="cancel" aria-label="Close">×</button></div><label>Search<input type="search" placeholder="name, kanji, hex" autofocus></label><div class="dialog-colours">${COLORS.map((colour, index) => `<button type="button" data-pick="${index}" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}"><span>${colour.kanji}</span><strong>${colour.romaji}</strong><code>${colour.hex}</code></button>`).join('')}</div></form>`;
@@ -374,14 +419,24 @@ function colourPicker(title, onChoose) {
     onChoose(Number(button.dataset.pick));
     dialog.close();
   });
-  dialog.addEventListener('close', () => dialog.remove());
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (returnFocus) requestAnimationFrame(() => controls.querySelector(returnFocus)?.focus());
+  });
   dialog.showModal();
 }
 
 function bindControlInputs() {
   controls.querySelectorAll('[data-state]').forEach((input) => {
     input.addEventListener('input', () => {
-      state[input.dataset.state] = input.type === 'range' || input.type === 'number' ? Number(input.value) : input.value;
+      const field = input.dataset.state;
+      if (input.type === 'range' || input.type === 'number') {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) return;
+        const limits = STATE_LIMITS[field] || [-Infinity, Infinity];
+        state[field] = clamp(value, limits[0], limits[1]);
+        input.value = String(state[field]);
+      } else state[field] = input.value;
       persist();
       renderCanvas();
       renderStageDirectControls();
@@ -417,7 +472,14 @@ function bindControlInputs() {
     renderControls(); renderSourceEvidence();
   });
   controls.querySelector('#generate-feeling')?.addEventListener('click', () => {
-    const indices = feelingPalette(controls.querySelector('#feeling-input').value);
+    const input = controls.querySelector('#feeling-input');
+    const status = controls.querySelector('#feeling-status');
+    if (!input.value.trim()) {
+      status.textContent = 'Describe a feeling before generating a palette.';
+      input.focus();
+      return;
+    }
+    const indices = feelingPalette(input.value);
     applyPalette(indices);
     showToast('Feeling mapped to colour');
   });
@@ -427,10 +489,11 @@ function bindControlInputs() {
 
 function applyPalette(indices) {
   const unique = [...new Set(indices)].slice(0, 5);
-  if (unique.length < 2) return;
+  if (unique.length < 2) return 0;
   state.stops = unique.map((color, index) => ({ color, position: Math.round(index / (unique.length - 1) * 100) }));
   state.gradientType = unique.length > 3 ? 'conic' : 'linear';
   commit();
+  return unique.length;
 }
 
 async function decodeImageFile(file) {
@@ -459,10 +522,13 @@ async function handleImage(event) {
     return;
   }
   status.textContent = 'Sampling image…';
+  let bitmap;
   try {
-    const bitmap = await decodeImageFile(file);
+    if (file.size > 30 * 1024 * 1024) throw new Error('image too large');
+    bitmap = await decodeImageFile(file);
     const width = bitmap.width || bitmap.naturalWidth;
     const height = bitmap.height || bitmap.naturalHeight;
+    if (!width || !height || width * height > 50_000_000) throw new Error('image dimensions too large');
     const sample = document.createElement('canvas');
     const ratio = Math.min(1, 180 / Math.max(width, height));
     sample.width = Math.max(1, Math.round(width * ratio));
@@ -473,11 +539,14 @@ async function handleImage(event) {
     if (indices.length < 2) throw new Error('not enough opaque colour data');
     if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
     sampledImage = { url: URL.createObjectURL(file), name: file.name, width, height };
-    analysisStatus.image = `${indices.length} matched colours extracted from ${file.name}.`;
-    applyPalette(indices);
+    const applied = applyPalette(indices);
+    analysisStatus.image = `${applied} matched colours extracted from ${file.name}.`;
+    renderControls();
   } catch {
-    analysisStatus.image = 'That image could not be sampled. Try PNG, JPG, WebP, GIF, AVIF, or SVG.';
+    analysisStatus.image = 'That image could not be sampled. Try a supported image smaller than 30 MB and 50 megapixels.';
     if (status) status.textContent = analysisStatus.image;
+  } finally {
+    bitmap?.close?.();
   }
 }
 
@@ -488,27 +557,32 @@ async function handleAudio(event) {
   status.textContent = 'Analysing waveform…';
   let audioContext;
   try {
+    if (file.size > 50 * 1024 * 1024) throw new Error('audio too large');
     audioContext = new AudioContext();
     const buffer = await audioContext.decodeAudioData(await file.arrayBuffer());
-    const data = buffer.getChannelData(0);
-    const stride = Math.max(1, Math.floor(data.length / 80000));
-    let energy = 0; let crossings = 0; let peak = 0; let previous = 0;
-    for (let index = 0; index < data.length; index += stride) {
-      const value = data[index];
-      energy += value * value;
-      peak = Math.max(peak, Math.abs(value));
-      if ((value >= 0) !== (previous >= 0)) crossings += 1;
-      previous = value;
+    let energy = 0; let crossings = 0; let peak = 0; let samples = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      const stride = Math.max(1, Math.floor(data.length / 80000));
+      let previous = data[0] || 0;
+      for (let index = 0; index < data.length; index += stride) {
+        const value = data[index];
+        energy += value * value;
+        peak = Math.max(peak, Math.abs(value));
+        if ((value >= 0) !== (previous >= 0)) crossings += 1;
+        previous = value;
+        samples += 1;
+      }
     }
-    const samples = Math.ceil(data.length / stride);
+    if (!samples) throw new Error('empty audio');
     const rms = Math.sqrt(energy / samples);
     const density = crossings / samples;
     const base = Math.floor(clamp(rms * 900, 0, 249));
     const spread = Math.max(17, Math.floor(density * 9000));
-    analysisStatus.audio = `${file.name}: RMS ${rms.toFixed(3)} · peak ${peak.toFixed(3)} · density ${density.toFixed(3)}.`;
+    analysisStatus.audio = `${file.name}: ${buffer.numberOfChannels} channel${buffer.numberOfChannels === 1 ? '' : 's'} · RMS ${rms.toFixed(3)} · peak ${peak.toFixed(3)} · density ${density.toFixed(3)}.`;
     applyPalette([base, (base + spread) % 250, Math.floor(peak * 249), (base + spread * 2) % 250]);
   } catch {
-    analysisStatus.audio = 'That audio file could not be decoded. Try WAV, MP3, M4A, OGG, or FLAC supported by this browser.';
+    analysisStatus.audio = 'That audio file could not be decoded. Try a supported file smaller than 50 MB.';
     if (status) status.textContent = analysisStatus.audio;
   } finally {
     if (audioContext && audioContext.state !== 'closed') await audioContext.close();
@@ -553,9 +627,9 @@ window.addEventListener('resize', updateModeContinuation);
 
 ledger.addEventListener('click', (event) => {
   const recipeButton = event.target.closest('[data-recipe]');
-  if (recipeButton) { state.recipe = Number(recipeButton.dataset.recipe); commit(); previewStage.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (recipeButton) { state.recipe = Number(recipeButton.dataset.recipe); commit(); previewStage.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); return; }
   const colourButton = event.target.closest('[data-colour]');
-  if (colourButton) { state.stops[1].color = Number(colourButton.dataset.colour); state.mode = 'make'; commit(); previewStage.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (colourButton) { state.stops[1].color = Number(colourButton.dataset.colour); state.mode = 'make'; commit(); previewStage.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); return; }
   const favouriteButton = event.target.closest('[data-favourite]');
   if (favouriteButton) {
     const index = Number(favouriteButton.dataset.favourite);
@@ -565,21 +639,35 @@ ledger.addEventListener('click', (event) => {
 });
 
 function mutate() {
-  const next = (Date.now() >>> 5) % RECIPES.length;
-  const recipe = RECIPES[next];
-  state.stops = structuredClone(recipe.stops);
-  state.angle = recipe.angle;
-  state.centerX = recipe.centerX;
-  state.centerY = recipe.centerY;
-  if (!['plane', 'catalogue', 'image'].includes(state.mode)) state.gradientType = recipe.type;
+  const seed = (Date.now() >>> 5) % RECIPES.length;
+  if (state.mode === 'catalogue') return;
+  if (state.mode === 'traditional') state.recipe = (state.recipe + (seed % (RECIPES.length - 1)) + 1) % RECIPES.length;
+  else if (state.mode === 'mono') state.monoBase = (state.monoBase + seed + 17) % COLORS.length;
+  else if (state.mode === 'plane') {
+    state.planeRotation.x = clamp(state.planeRotation.x + ((seed % 9) - 4) * 0.11, -1.4, 1.4);
+    state.planeRotation.y += 0.37 + (seed % 7) * 0.09;
+    state.planeSelected = null;
+  } else {
+    const recipe = RECIPES[(seed + state.angle) % RECIPES.length];
+    state.stops = structuredClone(recipe.stops);
+    state.angle = recipe.angle;
+    state.centerX = recipe.centerX;
+    state.centerY = recipe.centerY;
+    if (state.mode === 'make' || state.mode === 'image') state.gradientType = recipe.type;
+  }
   commit();
-  showToast('Gradient mutated');
+  showToast(`${MODE_LABELS[state.mode]} mutated`);
 }
 
 document.querySelector('#randomise').addEventListener('click', mutate);
 document.querySelector('#undo').addEventListener('click', () => travelHistory(-1));
 document.querySelector('#redo').addEventListener('click', () => travelHistory(1));
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !document.querySelector('#export-panel').hidden) {
+    event.preventDefault();
+    toggleExport(false);
+    return;
+  }
   const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault(); travelHistory(event.shiftKey ? 1 : -1); return;
@@ -600,7 +688,7 @@ document.querySelector('#share-state').addEventListener('click', async () => {
 
 function updateExportAvailability() {
   const cssButton = document.querySelector('[data-export="css"]');
-  const cssSupported = !['dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+  const cssSupported = !['air', 'dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
   cssButton.disabled = !cssSupported;
   cssButton.title = cssSupported ? 'Copy CSS background' : `${MODE_LABELS[state.mode]} has no faithful CSS equivalent`;
   const rasterBackedSvg = ['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) || state.gradientType === 'conic';
@@ -611,22 +699,31 @@ function updateExportAvailability() {
 
 function toggleExport(open) {
   const panel = document.querySelector('#export-panel');
+  const trigger = document.querySelector('#open-export');
   panel.hidden = !open;
-  document.querySelector('#open-export').setAttribute('aria-expanded', String(open));
+  trigger.setAttribute('aria-expanded', String(open));
   updateExportAvailability();
   if (open) {
     panel.querySelector('input').focus();
-    if (matchMedia('(max-width: 680px)').matches) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+    if (matchMedia('(max-width: 680px)').matches) panel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  } else trigger.focus();
 }
 
 document.querySelector('#open-export').addEventListener('click', () => toggleExport(document.querySelector('#export-panel').hidden));
 document.querySelector('#close-export').addEventListener('click', () => toggleExport(false));
+function updatePreviewAspect() {
+  const width = Number(document.querySelector('#export-width').value);
+  const height = Number(document.querySelector('#export-height').value);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+  previewStage.style.setProperty('--frame-ratio', `${clamp(width, 64, 4096)} / ${clamp(height, 64, 4096)}`);
+}
+document.querySelectorAll('#export-width, #export-height').forEach((input) => input.addEventListener('input', updatePreviewAspect));
 document.querySelectorAll('[data-export-size]').forEach((button) => {
   button.addEventListener('click', () => {
     const [width, height] = button.dataset.exportSize.split('x');
     document.querySelector('#export-width').value = width;
     document.querySelector('#export-height').value = height;
+    updatePreviewAspect();
     showToast(`${button.textContent.trim()} export size selected`);
   });
 });
@@ -644,7 +741,7 @@ function renderExportCanvas(width, height, labels) {
     outputCtx.fillStyle = '#171714';
     outputCtx.font = `${Math.max(13, width * 0.012)}px ui-monospace, monospace`;
     outputCtx.textBaseline = 'middle';
-    const cssSupported = !['dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+    const cssSupported = !['air', 'dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
     const descriptor = cssSupported ? cssForState(state).slice(0, 110) : document.querySelector('#caption-mode').textContent;
     outputCtx.fillText(`BOKASHI / ${MODE_LABELS[state.mode].toUpperCase()} / ${descriptor}`, width * 0.025, height - labelHeight / 2);
   }
@@ -659,18 +756,26 @@ function downloadBlob(blob, extension) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-function svgForCurrent(canvasOutput, width, height) {
+function svgForCurrent(canvasOutput, width, height, labels) {
   const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : state;
   const type = recipe.type ?? state.gradientType;
-  const standard = !['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) && type !== 'conic';
+  const standard = !labels && !['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) && type !== 'conic';
   if (!standard) return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image width="100%" height="100%" href="${canvasOutput.toDataURL('image/png')}"/></svg>`;
   const stops = getModeStops(state).map((stop) => `<stop offset="${stop.position}%" stop-color="${stop.hex ?? COLORS[stop.color].hex}"/>`).join('');
-  const centerX = recipe.centerX ?? state.centerX;
-  const centerY = recipe.centerY ?? state.centerY;
-  if (type === 'radial') return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><radialGradient id="g" cx="${centerX}%" cy="${centerY}%">${stops}</radialGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
+  const centerX = width * ((recipe.centerX ?? state.centerX) / 100);
+  const centerY = height * ((recipe.centerY ?? state.centerY) / 100);
+  if (type === 'radial') {
+    const radius = Math.max(
+      Math.hypot(centerX, centerY), Math.hypot(width - centerX, centerY),
+      Math.hypot(centerX, height - centerY), Math.hypot(width - centerX, height - centerY),
+    );
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><radialGradient id="g" gradientUnits="userSpaceOnUse" cx="${centerX}" cy="${centerY}" r="${radius}">${stops}</radialGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
+  }
   const radians = ((recipe.angle ?? state.angle) - 90) * Math.PI / 180;
-  const x = Math.cos(radians) * 50; const y = Math.sin(radians) * 50;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="${50 - x}%" y1="${50 - y}%" x2="${50 + x}%" y2="${50 + y}%">${stops}</linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
+  const directionX = Math.cos(radians); const directionY = Math.sin(radians);
+  const length = Math.abs(width * directionX) + Math.abs(height * directionY);
+  const x = directionX * length / 2; const y = directionY * length / 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="${width / 2 - x}" y1="${height / 2 - y}" x2="${width / 2 + x}" y2="${height / 2 + y}">${stops}</linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/></svg>`;
 }
 
 document.querySelector('.export-grid').addEventListener('click', async (event) => {
@@ -680,6 +785,12 @@ document.querySelector('.export-grid').addEventListener('click', async (event) =
   const height = clamp(document.querySelector('#export-height').value, 64, 4096);
   const labels = document.querySelector('#export-labels').checked;
   const format = button.dataset.export;
+  const pixelCount = width * height;
+  const heavyRaster = format === 'tiff' || ['air', 'dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+  if (heavyRaster && pixelCount > 8_500_000) {
+    showToast('This mode is capped at roughly 4K to prevent tab exhaustion');
+    return;
+  }
   button.disabled = true;
   button.textContent = '…';
   try {
@@ -687,10 +798,11 @@ document.querySelector('.export-grid').addEventListener('click', async (event) =
       await navigator.clipboard.writeText(`background: ${cssForState(state)};`);
       showToast('CSS copied');
     } else if (format === 'json') {
-      downloadBlob(new Blob([JSON.stringify({ app: 'BOKASHI', version: 1, state, css: cssForState(state), source: 'xiaohk/nippon-colors MIT' }, null, 2)], { type: 'application/json' }), 'json');
+      const cssSupported = !['air', 'dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
+      downloadBlob(new Blob([JSON.stringify({ app: 'BOKASHI', version: 1, state, css: cssSupported ? cssForState(state) : null, cssSupported, source: 'xiaohk/nippon-colors MIT' }, null, 2)], { type: 'application/json' }), 'json');
     } else {
       const output = renderExportCanvas(width, height, labels);
-      if (format === 'svg') downloadBlob(new Blob([svgForCurrent(output, width, height)], { type: 'image/svg+xml' }), 'svg');
+      if (format === 'svg') downloadBlob(new Blob([svgForCurrent(output, width, height, labels)], { type: 'image/svg+xml' }), 'svg');
       else if (format === 'tiff') downloadBlob(rgbaToTiff(output.getContext('2d').getImageData(0, 0, width, height)), 'tiff');
       else {
         const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
@@ -703,7 +815,6 @@ document.querySelector('.export-grid').addEventListener('click', async (event) =
   finally { button.disabled = false; button.textContent = format.toUpperCase(); }
 });
 
-previewStage.tabIndex = 0;
 previewStage.addEventListener('pointerdown', (event) => {
   const stopHandle = event.target.closest('[data-stage-stop]');
   const centerHandle = event.target.closest('[data-stage-center]');
@@ -803,8 +914,17 @@ previewStage.addEventListener('keydown', (event) => {
   else if (event.key === 'ArrowRight') state.planeRotation.y += delta;
   else if (event.key === 'ArrowUp') state.planeRotation.x = clamp(state.planeRotation.x - delta, -1.4, 1.4);
   else if (event.key === 'ArrowDown') state.planeRotation.x = clamp(state.planeRotation.x + delta, -1.4, 1.4);
-  else return;
-  event.preventDefault(); recordHistory(); renderCanvas(); persist();
+  else if (event.key.toLowerCase() === 'n') state.planeSelected = ((state.planeSelected ?? -1) + 1) % COLORS.length;
+  else if (event.key.toLowerCase() === 'p') state.planeSelected = ((state.planeSelected ?? 0) - 1 + COLORS.length) % COLORS.length;
+  else if (event.key === 'Enter' || event.key === ' ') {
+    const nearest = planePoints.reduce((best, point) => {
+      const distance = Math.hypot(point.x - canvas.width / 2, point.y - canvas.height / 2);
+      return distance < best.distance ? { index: point.index, distance } : best;
+    }, { index: null, distance: Infinity });
+    state.planeSelected = nearest.index;
+  } else return;
+  event.preventDefault();
+  commit();
 });
 
 window.addEventListener('hashchange', () => {
@@ -819,5 +939,6 @@ renderStageDirectControls();
 renderSourceEvidence();
 updateHistoryButtons();
 updateExportAvailability();
+updatePreviewAspect();
 updateModeContinuation();
 resizeCanvas();
