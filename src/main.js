@@ -293,7 +293,6 @@ function renderLedger(filter = '') {
 }
 
 function specimenColours() {
-  if (state.mode === 'catalogue') return [12, 62, 112, 162, 212].map((index) => COLORS[index]);
   if (state.mode === 'plane') {
     if (state.planeSelected != null) return [COLORS[state.planeSelected]];
     return [22, 72, 122, 172, 222].map((index) => COLORS[index]);
