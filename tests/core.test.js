@@ -12,19 +12,30 @@ test('catalogue and recipe inventory are complete', () => {
   assert.deepEqual(createRecipes(3), createRecipes(3));
 });
 
-test('state tokens round-trip core controls', () => {
-  const state = normaliseState({ ...DEFAULT_STATE, mode: 'dither', angle: 277, pattern: 'cross' });
+test('state tokens round-trip core controls and plane state', () => {
+  const state = normaliseState({
+    ...DEFAULT_STATE,
+    mode: 'plane',
+    angle: 277,
+    pattern: 'cross',
+    planeRotation: { x: 0.417, y: -1.205 },
+    planeSelected: 143,
+  });
   const restored = tokenToState(stateToToken(state));
-  assert.equal(restored.mode, 'dither');
+  assert.equal(restored.mode, 'plane');
   assert.equal(restored.angle, 277);
   assert.equal(restored.pattern, 'cross');
   assert.deepEqual(restored.stops, state.stops);
+  assert.deepEqual(restored.planeRotation, state.planeRotation);
+  assert.equal(restored.planeSelected, 143);
 });
 
 test('invalid state is clamped without throwing', () => {
-  const state = normaliseState({ mode: 'garbage', angle: 999, stops: [{ color: -2, position: -1 }, { color: 900, position: 600 }] });
+  const state = normaliseState({ mode: 'garbage', angle: 999, planeRotation: { x: 99, y: 'bad' }, planeSelected: 900, stops: [{ color: -2, position: -1 }, { color: 900, position: 600 }] });
   assert.equal(state.mode, 'make');
   assert.equal(state.angle, 360);
+  assert.deepEqual(state.planeRotation, { x: 1.4, y: DEFAULT_STATE.planeRotation.y });
+  assert.equal(state.planeSelected, null);
   assert.equal(state.stops[0].color, 0);
   assert.equal(state.stops[1].color, 249);
   assert.equal(clamp('7', 0, 5), 5);

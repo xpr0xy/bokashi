@@ -20,6 +20,7 @@ export const DEFAULT_STATE = {
   monoBase: 162,
   cubeSpeed: 0.45,
   planeRotation: { x: -0.28, y: 0.62 },
+  planeSelected: null,
 };
 
 export function clamp(value, min, max) {
@@ -110,6 +111,15 @@ export function normaliseState(input = {}) {
   state.recipe = clamp(Math.floor(state.recipe), 0, RECIPES.length - 1);
   state.monoBase = clamp(Math.floor(state.monoBase), 0, COLORS.length - 1);
   state.cubeSpeed = clamp(state.cubeSpeed, 0.1, 1.5);
+  const planeRotation = input.planeRotation && typeof input.planeRotation === 'object' ? input.planeRotation : DEFAULT_STATE.planeRotation;
+  state.planeRotation = {
+    x: clamp(planeRotation.x, -1.4, 1.4),
+    y: Number.isFinite(Number(planeRotation.y)) ? Number(planeRotation.y) : DEFAULT_STATE.planeRotation.y,
+  };
+  const planeSelected = Number(input.planeSelected);
+  state.planeSelected = input.planeSelected == null || !Number.isInteger(planeSelected) || planeSelected < 0 || planeSelected >= COLORS.length
+    ? null
+    : planeSelected;
   state.stops = Array.isArray(input.stops) && input.stops.length >= 2
     ? input.stops.slice(0, 5).map((stop, index, all) => ({
       color: clamp(Math.floor(stop.color), 0, COLORS.length - 1),
@@ -132,6 +142,8 @@ export function stateToToken(state) {
     r: state.recipe,
     o: state.monoBase,
     v: Number(state.cubeSpeed.toFixed(2)),
+    q: [Number(state.planeRotation.x.toFixed(3)), Number(state.planeRotation.y.toFixed(3))],
+    z: state.planeSelected,
   };
   return btoa(unescape(encodeURIComponent(JSON.stringify(compact)))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
@@ -152,6 +164,8 @@ export function tokenToState(token) {
       recipe: compact.r,
       monoBase: compact.o,
       cubeSpeed: compact.v,
+      planeRotation: Array.isArray(compact.q) ? { x: compact.q[0], y: compact.q[1] } : undefined,
+      planeSelected: compact.z,
     });
   } catch {
     return null;
@@ -319,19 +333,53 @@ export function projectColourPlane(width, height, rotation = DEFAULT_STATE.plane
 export function renderPlane(ctx, state, width, height) {
   ctx.fillStyle = '#E8E5DC';
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = 'rgba(23,23,20,.24)';
-  ctx.beginPath();
-  ctx.moveTo(width / 2, height * 0.08);
-  ctx.lineTo(width / 2, height * 0.92);
-  ctx.stroke();
+  ctx.strokeStyle = 'rgba(23,23,20,.18)';
+  ctx.lineWidth = 1;
+  [
+    [width / 2, height * 0.08, width / 2, height * 0.92],
+    [width * 0.18, height * 0.68, width * 0.82, height * 0.32],
+    [width * 0.18, height * 0.32, width * 0.82, height * 0.68],
+  ].forEach(([x1, y1, x2, y2]) => {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  });
   const points = projectColourPlane(width, height, state.planeRotation);
   points.forEach((point) => {
     ctx.fillStyle = COLORS[point.index].hex;
     ctx.beginPath();
     ctx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
     ctx.fill();
+    if (point.index === state.planeSelected) {
+      ctx.strokeStyle = '#171714';
+      ctx.lineWidth = Math.max(2, width / 600);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, point.radius + Math.max(5, width / 180), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(23,23,20,.18)';
+      ctx.lineWidth = 1;
+    }
   });
   return points;
+}
+
+export function renderCatalogue(ctx, width, height) {
+  const columns = width >= height ? 25 : 10;
+  const rows = Math.ceil(COLORS.length / columns);
+  const cellWidth = width / columns;
+  const cellHeight = height / rows;
+  COLORS.forEach((colour, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    ctx.fillStyle = colour.hex;
+    ctx.fillRect(column * cellWidth, row * cellHeight, Math.ceil(cellWidth), Math.ceil(cellHeight));
+  });
+  ctx.strokeStyle = 'rgba(241,239,232,.48)';
+  ctx.lineWidth = Math.max(1, width / 1100);
+  for (let column = 1; column < columns; column += 1) {
+    ctx.beginPath(); ctx.moveTo(column * cellWidth, 0); ctx.lineTo(column * cellWidth, height); ctx.stroke();
+  }
+  for (let row = 1; row < rows; row += 1) {
+    ctx.beginPath(); ctx.moveTo(0, row * cellHeight); ctx.lineTo(width, row * cellHeight); ctx.stroke();
+  }
 }
 
 export function renderPreview(ctx, state, width, height, time = 0) {
@@ -340,6 +388,7 @@ export function renderPreview(ctx, state, width, height, time = 0) {
   else if (state.mode === 'air') renderAir(ctx, state, width, height);
   else if (state.mode === 'cube') renderCube(ctx, state, width, height, time);
   else if (state.mode === 'plane') return renderPlane(ctx, state, width, height);
+  else if (state.mode === 'catalogue') renderCatalogue(ctx, width, height);
   else {
     ctx.fillStyle = canvasGradient(ctx, state, width, height);
     ctx.fillRect(0, 0, width, height);
