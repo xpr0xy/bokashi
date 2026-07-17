@@ -1,0 +1,23 @@
+# BOKASHI
+
+> A local-first Japanese colour instrument for building, inspecting, sampling, and exporting gradients from a source-attributed 250-colour catalogue.
+
+BOKASHI provides nine deterministic visual instruments: Make, Recipes, Mono, Air, Dither, Cube, Image, 3D Plane, and Colours. Rendering and source analysis happen in the browser. No uploaded image or audio leaves the device.
+
+## Primary links
+
+- [Open BOKASHI](https://bokashi.pr0xy.dev/)
+- [Source code](https://github.com/xpr0xy/bokashi)
+- [Colour data source](https://github.com/xiaohk/nippon-colors)
+
+## Capabilities
+
+- Directly manipulate gradient stops and radial or conic centres on the canvas.
+- Browse 120 deterministic recipes and 250 source-attributed colours.
+- Extract catalogue-matched palettes from local images and derive colour from local audio analysis.
+- Preserve instrument state in a shareable URL.
+- Export PNG, JPG, TIFF, SVG, CSS, and JSON.
+
+## Limits
+
+The catalogue is a design reference adapted from xiaohk/nippon-colors under the MIT license. It is not presented as historical scholarship.

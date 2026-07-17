@@ -1,3 +1,5 @@
-# Design brief
+# BOKASHI visual brief
 
-Build a serious browser colour instrument from a source-attributed Japanese palette. The primary loop is select a recipe, manipulate it, inspect the result, export it. Browsing is subordinate to making. The interface should resemble a print specimen folio and colour laboratory, with a dominant mutable field and calm fixed controls. The product is free, accountless, local-first, and distinct from the capability reference.
+Create a serious local-first Japanese colour instrument, not a gallery landing page. The silhouette is a black editorial masthead over a specimen folio and colour laboratory: numbered mode ledger, dominant truthful canvas, compact data-bearing chromatic register, and precise inspector. Make it award-grade through hierarchy, typography, bespoke controls, responsive composition, and factual material detail rather than effects.
+
+Output colour may enter the artwork and specimen register only. Chrome stays paper, ink, quiet ink, and rules. Preserve all nine modes, direct canvas handles, ledgers, history, URL state, exports, and source evidence. No cards, gradients in chrome, fake washi, glass, drop shadows, decorative grids, loader, scroll theatre, or Japanese cosplay.

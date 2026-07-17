@@ -10,6 +10,10 @@ const MODE_LABELS = {
   make: 'Make', traditional: 'Recipes', mono: 'Mono', air: 'Air', dither: 'Dither',
   cube: 'Cube', image: 'Image', plane: '3D plane', catalogue: 'Colours',
 };
+const MODE_NOTES = {
+  make: 'construct', traditional: 'curated', mono: 'tonal', air: 'diffuse', dither: 'matrix',
+  cube: 'sequence', image: 'sample', plane: 'spatial', catalogue: 'register',
+};
 const STATE_LIMITS = {
   angle: [0, 360], centerX: [0, 100], centerY: [0, 100], blur: [0, 180], cubeSpeed: [0.1, 1.5],
 };
@@ -35,6 +39,7 @@ let sampledImage = null;
 let analysisStatus = { image: '', audio: '' };
 let undoStack = [structuredClone(state)];
 let redoStack = [];
+let specimenSignature = '';
 
 app.innerHTML = `
   <header class="masthead">
@@ -42,7 +47,7 @@ app.innerHTML = `
       <p class="eyebrow">ぼかし / colour instrument</p>
       <h1>BOKASHI</h1>
     </div>
-    <p class="masthead-note">Build, inspect, sample and export gradients from a source-attributed Japanese colour catalogue.</p>
+    <p class="masthead-note"><span>250 source colours</span><span>120 deterministic recipes</span><span>local canvas / six export paths</span></p>
     <div class="masthead-actions">
       <div class="history-actions" role="group" aria-label="History">
         <button class="quiet-button icon-button" id="undo" type="button" aria-label="Undo" title="Undo (⌘Z)" disabled>↶</button>
@@ -56,7 +61,7 @@ app.innerHTML = `
   <main id="workspace" class="workspace">
     <nav class="mode-rail" aria-label="Instrument modes">
       <p class="rail-index">MODE</p>
-      ${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span>${String(index + 1).padStart(2, '0')}</span>${MODE_LABELS[mode]}</button>`).join('')}
+      ${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span class="mode-number">${String(index + 1).padStart(2, '0')}</span><span class="mode-name">${MODE_LABELS[mode]}<small>${MODE_NOTES[mode]}</small></span></button>`).join('')}
       <span class="mode-more" aria-hidden="true">→</span>
     </nav>
     <section class="stage-column" aria-label="Gradient output">
@@ -73,6 +78,7 @@ app.innerHTML = `
         <span id="caption-stops">3 STOPS</span>
         <span id="caption-size">LIVE CANVAS</span>
       </div>
+      <div class="specimen-register" id="specimen-register" aria-hidden="true"></div>
       <p class="sr-only" id="ledger-status" role="status" aria-live="polite" aria-atomic="true"></p>
     </section>
     <section class="ledger" id="ledger"></section>
@@ -121,6 +127,15 @@ function showToast(message) {
   toast.classList.add('is-visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 1800);
+}
+
+function animateStageChange() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  canvas.getAnimations().forEach((animation) => animation.cancel());
+  canvas.animate([
+    { opacity: 0.72, transform: 'scale(1.008)' },
+    { opacity: 1, transform: 'scale(1)' },
+  ], { duration: 240, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
 }
 
 function persist() {
@@ -277,6 +292,31 @@ function renderLedger(filter = '') {
   }
 }
 
+function specimenColours() {
+  if (state.mode === 'catalogue') return [12, 62, 112, 162, 212].map((index) => COLORS[index]);
+  if (state.mode === 'plane') {
+    if (state.planeSelected != null) return [COLORS[state.planeSelected]];
+    return [22, 72, 122, 172, 222].map((index) => COLORS[index]);
+  }
+  return getModeStops(state).slice(0, 5).map((stop, index) => {
+    if (stop.color != null) return COLORS[stop.color];
+    return { kanji: String(index + 1).padStart(2, '0'), romaji: 'tonal value', hex: stop.hex };
+  });
+}
+
+function renderSpecimenRegister(detail) {
+  const register = document.querySelector('#specimen-register');
+  const browseMode = ['traditional', 'catalogue'].includes(state.mode);
+  register.hidden = browseMode;
+  if (browseMode) { register.replaceChildren(); specimenSignature = ''; return; }
+  const colours = specimenColours();
+  const signature = `${state.mode}:${detail}:${colours.map((colour) => `${colour.kanji}:${colour.hex}`).join('|')}`;
+  if (signature === specimenSignature) return;
+  specimenSignature = signature;
+  const modeNumber = String(MODES.indexOf(state.mode) + 1).padStart(2, '0');
+  register.innerHTML = `<div class="register-lead"><span>${modeNumber}</span><div><strong>${MODE_LABELS[state.mode]}</strong><small>${detail} / ${MODE_NOTES[state.mode]}</small></div></div><div class="register-palette">${colours.map((colour, index) => `<div class="register-colour" style="--register-colour:${colour.hex}"><span>${colour.kanji}</span><div><strong>${colour.romaji}</strong><code>${colour.hex}</code></div><small>${String(index + 1).padStart(2, '0')}</small></div>`).join('')}</div>`;
+}
+
 function renderCaption() {
   const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : null;
   const detail = {
@@ -289,6 +329,7 @@ function renderCaption() {
     plane: 'HSL SPACE',
     catalogue: '250-SWATCH MOSAIC',
   }[state.mode] || state.gradientType;
+  renderSpecimenRegister(detail.toUpperCase());
   document.querySelector('#caption-mode').textContent = `${MODE_LABELS[state.mode].toUpperCase()} / ${detail.toUpperCase()}`;
   const stopText = state.mode === 'plane'
     ? (state.planeSelected == null ? 'NO SELECTION' : COLORS[state.planeSelected].romaji.toUpperCase())
@@ -617,6 +658,7 @@ document.querySelector('.mode-rail').addEventListener('click', (event) => {
   if (!button) return;
   state.mode = button.dataset.mode;
   commit();
+  animateStageChange();
 });
 const modeRail = document.querySelector('.mode-rail');
 function updateModeContinuation() {
@@ -656,6 +698,7 @@ function mutate() {
     if (state.mode === 'make' || state.mode === 'image') state.gradientType = recipe.type;
   }
   commit();
+  animateStageChange();
   showToast(`${MODE_LABELS[state.mode]} mutated`);
 }
 
@@ -678,6 +721,7 @@ document.addEventListener('keydown', (event) => {
   if (/^[1-9]$/.test(event.key)) {
     state.mode = MODES[Number(event.key) - 1];
     commit();
+    animateStageChange();
   }
 });
 document.querySelector('#share-state').addEventListener('click', async () => {
@@ -704,6 +748,12 @@ function toggleExport(open) {
   trigger.setAttribute('aria-expanded', String(open));
   updateExportAvailability();
   if (open) {
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      panel.animate([
+        { opacity: 0, transform: 'translateY(-8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ], { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
+    }
     panel.querySelector('input').focus();
     if (matchMedia('(max-width: 680px)').matches) panel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   } else trigger.focus();
