@@ -775,7 +775,10 @@ document.querySelector('.mode-rail').addEventListener('click', (event) => {
 });
 const modeRail = document.querySelector('.mode-rail');
 function updateModeContinuation() {
-  modeRail.classList.toggle('at-end', modeRail.scrollLeft + modeRail.clientWidth >= modeRail.scrollWidth - 4);
+  const remaining = innerWidth <= 680
+    ? modeRail.scrollWidth - modeRail.clientWidth - modeRail.scrollLeft
+    : modeRail.scrollHeight - modeRail.clientHeight - modeRail.scrollTop;
+  modeRail.classList.toggle('at-end', remaining <= 4);
 }
 modeRail.addEventListener('scroll', updateModeContinuation, { passive: true });
 window.addEventListener('resize', updateModeContinuation);

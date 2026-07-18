@@ -234,6 +234,9 @@ label output { float: right; color: var(--ink); }
   .masthead { min-height: 0; }
   .workspace { min-height: 0; height: auto; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
   .mode-rail { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--ink) transparent; scrollbar-width: thin; }
+  .mode-more { position: sticky; z-index: 3; bottom: 0; display: grid; flex: 0 0 30px; place-items: center; border-top: 1px solid var(--ink); background: var(--ink); color: var(--paper); font-size: 0; pointer-events: none; }
+  .mode-more::after { content: "↓"; font: .7rem var(--mono); }
+  .mode-rail.at-end .mode-more { opacity: 0; }
   .canvas-stack { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
   .canvas-stack:has(.ledger:not([hidden])) { grid-template-rows: minmax(16rem, 3fr) minmax(12rem, 2fr); }
   .stage-column { min-height: 0; overflow: hidden; padding: 1rem 1.25rem .75rem; }
