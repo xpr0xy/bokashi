@@ -22,7 +22,7 @@ BOKASHI is a colour instrument, not a gallery homepage. The mutable artwork occu
 - radius: 0 for rails, buttons, fields, preview. Circular stop and range handles only.
 - desktop shell: 11.5rem numbered mode rail, flexible artwork field, 19rem inspector.
 - the artwork and its specimen register are vertically composed as one folio plate. Browse ledgers remain separate layout siblings below it.
-- mobile: masthead, artwork, compact chromatic register, horizontal mode rail, controls, ledger, export drawer. No squeezed sidebars.
+- mobile: masthead, artwork, compact chromatic register, horizontal mode rail, controls, ledger. Export opens as a fixed contextual bottom sheet over a restrained scrim; it never scrolls the instrument out of view. No squeezed sidebars.
 - rules and spacing create hierarchy. No cards, drop shadows, glass, decorative grid, fake washi texture, or Japanese cosplay.
 
 ## artwork
@@ -45,7 +45,8 @@ On mobile, identity compresses before the instrument does. The masthead must not
 - No loader, auto-play reveal, cursor hijack, parallax, entrance stagger, or scroll theatre.
 - Animation is reserved for direct manipulation, mode/mutate output changes, export disclosure, dialogs, toast, and the live cube.
 - mode and mutate output transition: 240ms scale/opacity, `cubic-bezier(.2, 0, 0, 1)`
-- export disclosure: 220ms translate/opacity on entry; close is immediate
+- desktop/tablet export disclosure: 180ms translate/opacity entry, `cubic-bezier(.16, 1, .3, 1)`; close remains immediate
+- mobile export sheet: 200ms translate/opacity entry, 140ms exit, 160ms scrim fade; focus is trapped inside until explicit close, Escape, or scrim click
 - dialog entry: 260ms translate/scale/opacity; backdrop: 200ms opacity
 - hover and press feedback: 120–180ms, transform/background/border only
 - repeated input and range updates remain immediate. No animation on every slider tick.

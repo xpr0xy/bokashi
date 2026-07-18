@@ -88,8 +88,9 @@ app.innerHTML = `
         <span id="mode-readout">MAKE</span>
       </div>
       <div id="controls"></div>
-      <section class="export-panel" id="export-panel" hidden>
-        <div class="section-heading"><h2>Export</h2><button type="button" id="close-export" aria-label="Close export panel">×</button></div>
+      <div class="export-scrim" id="export-scrim" hidden aria-hidden="true"></div>
+      <section class="export-panel" id="export-panel" aria-labelledby="export-title" hidden>
+        <div class="section-heading"><h2 id="export-title">Export</h2><button type="button" id="close-export" aria-label="Close export panel">×</button></div>
         <div class="export-presets" role="group" aria-label="Export size presets">
           <button type="button" data-export-size="1600x900">16:9</button>
           <button type="button" data-export-size="2048x2048">Square</button>
@@ -121,6 +122,12 @@ const controls = document.querySelector('#controls');
 const ledger = document.querySelector('#ledger');
 const previewStage = document.querySelector('#preview-stage');
 const toast = document.querySelector('#toast');
+const exportPanel = document.querySelector('#export-panel');
+const exportScrim = document.querySelector('#export-scrim');
+const exportTrigger = document.querySelector('#open-export');
+const mobileExportQuery = matchMedia('(max-width: 680px)');
+const reducedMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+let exportTransitionId = 0;
 
 function showToast(message) {
   toast.textContent = message;
@@ -705,6 +712,20 @@ document.querySelector('#randomise').addEventListener('click', mutate);
 document.querySelector('#undo').addEventListener('click', () => travelHistory(-1));
 document.querySelector('#redo').addEventListener('click', () => travelHistory(1));
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Tab' && mobileExportQuery.matches && !exportPanel.hidden && !exportPanel.inert) {
+    const focusable = [...exportPanel.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => element.getClientRects().length);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !exportPanel.contains(document.activeElement))) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !exportPanel.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
+    }
+    return;
+  }
   if (event.key === 'Escape' && !document.querySelector('#export-panel').hidden) {
     event.preventDefault();
     toggleExport(false);
@@ -740,26 +761,85 @@ function updateExportAvailability() {
     : 'Raster and vector exports render locally. No source leaves this browser.';
 }
 
-function toggleExport(open) {
-  const panel = document.querySelector('#export-panel');
-  const trigger = document.querySelector('#open-export');
-  panel.hidden = !open;
-  trigger.setAttribute('aria-expanded', String(open));
-  updateExportAvailability();
-  if (open) {
-    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      panel.animate([
-        { opacity: 0, transform: 'translateY(-8px)' },
-        { opacity: 1, transform: 'translateY(0)' },
-      ], { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
-    }
-    panel.querySelector('input').focus();
-    if (matchMedia('(max-width: 680px)').matches) panel.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-  } else trigger.focus();
+function lockExportBackground() {
+  if (document.body.classList.contains('export-sheet-open')) return;
+  const lockedScroll = window.scrollY;
+  document.body.dataset.exportScroll = String(lockedScroll);
+  document.body.style.setProperty('--export-lock-y', `${-lockedScroll}px`);
+  document.body.classList.add('export-sheet-open');
 }
 
-document.querySelector('#open-export').addEventListener('click', () => toggleExport(document.querySelector('#export-panel').hidden));
+function unlockExportBackground() {
+  if (!document.body.classList.contains('export-sheet-open')) return;
+  const lockedScroll = Number(document.body.dataset.exportScroll) || 0;
+  document.body.classList.remove('export-sheet-open');
+  document.body.style.removeProperty('--export-lock-y');
+  delete document.body.dataset.exportScroll;
+  window.scrollTo(0, lockedScroll);
+}
+
+function finishExportClose(transitionId) {
+  if (transitionId !== exportTransitionId || exportTrigger.getAttribute('aria-expanded') === 'true') return;
+  unlockExportBackground();
+  exportPanel.hidden = true;
+  exportPanel.inert = false;
+  exportScrim.hidden = true;
+  exportPanel.removeAttribute('role');
+  exportPanel.removeAttribute('aria-modal');
+}
+
+function toggleExport(open) {
+  const mobile = mobileExportQuery.matches;
+  const transitionId = ++exportTransitionId;
+  exportPanel.getAnimations().forEach((animation) => animation.cancel());
+  exportScrim.getAnimations().forEach((animation) => animation.cancel());
+  exportTrigger.setAttribute('aria-expanded', String(open));
+
+  if (open) {
+    exportPanel.hidden = false;
+    exportPanel.inert = false;
+    updateExportAvailability();
+    if (mobile) {
+      exportPanel.setAttribute('role', 'dialog');
+      exportPanel.setAttribute('aria-modal', 'true');
+      exportScrim.hidden = false;
+      lockExportBackground();
+    } else {
+      exportPanel.removeAttribute('role');
+      exportPanel.removeAttribute('aria-modal');
+      exportScrim.hidden = true;
+      unlockExportBackground();
+    }
+    if (!reducedMotionQuery.matches) {
+      exportPanel.animate([
+        { opacity: 0, transform: mobile ? 'translateY(12px)' : 'translateY(-6px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ], { duration: mobile ? 200 : 180, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+      if (mobile) exportScrim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'linear' });
+    }
+    const focusTarget = mobile ? document.querySelector('#close-export') : exportPanel.querySelector('input');
+    focusTarget.focus({ preventScroll: true });
+    return;
+  }
+
+  exportPanel.inert = true;
+  exportTrigger.focus({ preventScroll: true });
+  if (mobile && !exportPanel.hidden && !reducedMotionQuery.matches) {
+    const panelAnimation = exportPanel.animate([
+      { opacity: 1, transform: 'translateY(0)' },
+      { opacity: 0, transform: 'translateY(12px)' },
+    ], { duration: 140, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'both' });
+    const scrimAnimation = exportScrim.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'linear', fill: 'both' });
+    Promise.allSettled([panelAnimation.finished, scrimAnimation.finished]).then(() => finishExportClose(transitionId));
+  } else finishExportClose(transitionId);
+}
+
+document.querySelector('#open-export').addEventListener('click', () => toggleExport(exportTrigger.getAttribute('aria-expanded') !== 'true'));
 document.querySelector('#close-export').addEventListener('click', () => toggleExport(false));
+exportScrim.addEventListener('click', () => toggleExport(false));
+mobileExportQuery.addEventListener('change', () => {
+  if (!exportPanel.hidden) toggleExport(false);
+});
 function updatePreviewAspect() {
   const width = Number(document.querySelector('#export-width').value);
   const height = Number(document.querySelector('#export-height').value);

@@ -171,6 +171,8 @@ label output { float: right; color: var(--ink); }
 .microcopy { margin: .7rem 0 0; color: var(--muted); font-size: .58rem; line-height: 1.45; text-transform: none; }
 .plane-empty { min-height: 8rem; display: grid; place-items: center; border: 1px dashed var(--rule); color: var(--muted); font-size: .74rem; }
 
+.export-scrim[hidden] { display: none; }
+.export-scrim { position: fixed; z-index: 40; inset: 0; background: rgba(23, 23, 20, .2); }
 .export-panel { padding: 1rem; border-top: 1px solid var(--ink); background: var(--paper-2); }
 .export-panel[hidden] { display: none; }
 .export-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-bottom: .75rem; background: var(--rule); border: 1px solid var(--rule); }
@@ -277,6 +279,11 @@ label output { float: right; color: var(--ink); }
   .register-colour::before, .register-colour > * { display: none; }
   .inspector { order: 3; display: block; border-top: 0; }
   .inspector-head { border-right: 0; }
+  body.export-sheet-open { position: fixed; top: var(--export-lock-y, 0); right: 0; left: 0; width: 100%; overflow: hidden; }
+  .export-panel { position: fixed; z-index: 42; right: 0; bottom: 0; left: 0; max-height: min(72svh, 38rem); overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); border: 1px solid var(--ink); border-bottom: 0; }
+  .export-panel .section-heading { position: sticky; z-index: 1; top: -1rem; margin: -1rem -1rem .85rem; padding: 1rem; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
+  .export-panel #close-export { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+  .export-sheet-open .toast { z-index: 43; bottom: calc(min(72svh, 38rem) + .75rem); }
   #controls { display: block; }
   .control-group { border-right: 0; }
   .section-heading button, .export-presets button, .export-grid button { min-height: 44px; }
