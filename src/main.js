@@ -196,6 +196,7 @@ function updateNav() {
     button.setAttribute('aria-current', active ? 'page' : 'false');
   });
   document.querySelector('#mode-readout').textContent = MODE_LABELS[state.mode].toUpperCase();
+  requestAnimationFrame(revealActiveMode);
   const mutateButton = document.querySelector('#randomise');
   mutateButton.disabled = state.mode === 'catalogue';
   mutateButton.title = state.mode === 'catalogue' ? 'The catalogue is a fixed source register' : `Mutate ${MODE_LABELS[state.mode]} output`;
@@ -774,6 +775,22 @@ document.querySelector('.mode-rail').addEventListener('click', (event) => {
   animateStageChange();
 });
 const modeRail = document.querySelector('.mode-rail');
+function revealActiveMode() {
+  const active = modeRail.querySelector('.is-active');
+  if (!active) return;
+  if (innerWidth <= 680) {
+    if (active.offsetLeft < modeRail.scrollLeft) modeRail.scrollLeft = active.offsetLeft;
+    else if (active.offsetLeft + active.offsetWidth > modeRail.scrollLeft + modeRail.clientWidth) {
+      modeRail.scrollLeft = active.offsetLeft + active.offsetWidth - modeRail.clientWidth;
+    }
+  } else {
+    if (active.offsetTop < modeRail.scrollTop) modeRail.scrollTop = active.offsetTop;
+    else if (active.offsetTop + active.offsetHeight > modeRail.scrollTop + modeRail.clientHeight) {
+      modeRail.scrollTop = active.offsetTop + active.offsetHeight - modeRail.clientHeight;
+    }
+  }
+  updateModeContinuation();
+}
 function updateModeContinuation() {
   const remaining = innerWidth <= 680
     ? modeRail.scrollWidth - modeRail.clientWidth - modeRail.scrollLeft
@@ -903,7 +920,6 @@ document.addEventListener('keydown', (event) => {
     state.mode = MODES[(MODES.indexOf(state.mode) + direction + MODES.length) % MODES.length];
     commit();
     animateStageChange();
-    modeRail.querySelector('.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 });
 document.querySelector('#share-state').addEventListener('click', async () => {
