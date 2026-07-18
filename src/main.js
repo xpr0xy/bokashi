@@ -41,6 +41,7 @@ let dragStart = null;
 let stageDrag = null;
 let toastTimer = null;
 let sampledImage = null;
+let sampledPaletteCandidates = [];
 let analysisStatus = { image: '', audio: '' };
 let undoStack = [structuredClone(state)];
 let redoStack = [];
@@ -556,6 +557,10 @@ function bindControlInputs() {
         state[field] = clamp(value, limits[0], limits[1]);
         input.value = String(state[field]);
       } else state[field] = input.value;
+      if ((field === 'imagePaletteCount' || field === 'imageSort') && sampledPaletteCandidates.length >= 2) {
+        applySampledImagePalette();
+        return;
+      }
       persist();
       renderCanvas();
       renderStageDirectControls();
@@ -591,6 +596,7 @@ function bindControlInputs() {
   controls.querySelector('#clear-source')?.addEventListener('click', () => {
     if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
     sampledImage = null;
+    sampledPaletteCandidates = [];
     analysisStatus.image = '';
     renderControls(); renderSourceEvidence();
   });
@@ -633,6 +639,14 @@ function applyPalette(indices) {
   return unique.length;
 }
 
+function applySampledImagePalette() {
+  let indices = [...sampledPaletteCandidates];
+  if (state.imageSort === 'luminance') indices.sort((a, b) => luminance(COLORS[a].hex) - luminance(COLORS[b].hex));
+  const selected = [...new Set(indices)].slice(0, state.imagePaletteCount);
+  if (sampledImage) analysisStatus.image = `${selected.length} matched colours extracted from ${sampledImage.name}.`;
+  return applyPalette(selected);
+}
+
 async function decodeImageFile(file) {
   try { return await createImageBitmap(file); }
   catch {
@@ -672,12 +686,12 @@ async function handleImage(event) {
     sample.height = Math.max(1, Math.round(height * ratio));
     const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
     sampleCtx.drawImage(bitmap, 0, 0, sample.width, sample.height);
-    let indices = extractPaletteFromImage(sampleCtx.getImageData(0, 0, sample.width, sample.height), state.imagePaletteCount);
-    if (state.imageSort === 'luminance') indices = indices.sort((a, b) => luminance(COLORS[a].hex) - luminance(COLORS[b].hex));
-    if (indices.length < 2) throw new Error('not enough opaque colour data');
+    const candidates = extractPaletteFromImage(sampleCtx.getImageData(0, 0, sample.width, sample.height), 5);
+    if (candidates.length < 2) throw new Error('not enough opaque colour data');
     if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
     sampledImage = { url: URL.createObjectURL(file), name: file.name, width, height };
-    const applied = applyPalette(indices);
+    sampledPaletteCandidates = candidates;
+    const applied = applySampledImagePalette();
     analysisStatus.image = `${applied} matched colours extracted from ${file.name}.`;
     renderControls();
   } catch {
