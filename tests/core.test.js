@@ -42,8 +42,10 @@ test('state tokens round-trip expanded renderer controls', () => {
     ditherBias: -18,
     cubeCount: 21,
     cubeDirection: -1,
+    cubePhase: 0.73,
     imagePaletteCount: 3,
     imageSort: 'luminance',
+    sourceType: 'audio',
     planeSpace: 'rgb',
     catalogueSort: 'hue',
     harmonyScheme: 'split',
@@ -53,7 +55,7 @@ test('state tokens round-trip expanded renderer controls', () => {
     bandOffset: 64,
   });
   const restored = tokenToState(stateToToken(state));
-  for (const key of ['mode', 'monoDark', 'monoLight', 'airSpread', 'airStrength', 'ditherScale', 'ditherBias', 'cubeCount', 'cubeDirection', 'imagePaletteCount', 'imageSort', 'planeSpace', 'catalogueSort', 'harmonyScheme', 'harmonySpread', 'bandScale', 'bandGap', 'bandOffset']) {
+  for (const key of ['mode', 'monoDark', 'monoLight', 'airSpread', 'airStrength', 'ditherScale', 'ditherBias', 'cubeCount', 'cubeDirection', 'cubePhase', 'imagePaletteCount', 'imageSort', 'sourceType', 'planeSpace', 'catalogueSort', 'harmonyScheme', 'harmonySpread', 'bandScale', 'bandGap', 'bandOffset']) {
     assert.equal(restored[key], state[key], key);
   }
 });
@@ -61,8 +63,8 @@ test('state tokens round-trip expanded renderer controls', () => {
 test('expanded controls clamp and enum values recover safely', () => {
   const state = normaliseState({
     monoDark: 200, monoLight: -2, airSpread: 0, airStrength: 999,
-    ditherScale: 99, ditherBias: -999, cubeCount: 2, cubeDirection: 7,
-    imagePaletteCount: 19, imageSort: 'garbage', planeSpace: 'lab', catalogueSort: 'garbage',
+    ditherScale: 99, ditherBias: -999, cubeCount: 2, cubeDirection: 7, cubePhase: 9,
+    imagePaletteCount: 19, imageSort: 'garbage', sourceType: 'garbage', planeSpace: 'lab', catalogueSort: 'garbage',
     harmonyScheme: 'garbage', harmonySpread: 500, bandScale: 0, bandGap: 100, bandOffset: -5,
   });
   assert.deepEqual({ monoDark: state.monoDark, monoLight: state.monoLight }, { monoDark: 90, monoLight: 5 });
@@ -70,8 +72,10 @@ test('expanded controls clamp and enum values recover safely', () => {
   assert.deepEqual({ ditherScale: state.ditherScale, ditherBias: state.ditherBias }, { ditherScale: 12, ditherBias: -45 });
   assert.equal(state.cubeCount, 4);
   assert.equal(state.cubeDirection, 1);
+  assert.equal(state.cubePhase, 1);
   assert.equal(state.imagePaletteCount, 5);
   assert.equal(state.imageSort, DEFAULT_STATE.imageSort);
+  assert.equal(state.sourceType, DEFAULT_STATE.sourceType);
   assert.equal(state.planeSpace, DEFAULT_STATE.planeSpace);
   assert.equal(state.catalogueSort, DEFAULT_STATE.catalogueSort);
   assert.equal(state.harmonyScheme, DEFAULT_STATE.harmonyScheme);
@@ -90,6 +94,20 @@ test('new instrument inventory and colour calculations are deterministic', () =>
   first.forEach((index) => assert.ok(index >= 0 && index < COLORS.length));
   assert.equal(contrastRatio('#000000', '#FFFFFF'), 21);
   assert.equal(contrastRatio('#FFFFFF', '#FFFFFF'), 1);
+});
+
+test('cube frames are determined by shared phase rather than wall-clock time', () => {
+  const draw = (time) => {
+    const calls = [];
+    const context = {
+      clearRect() {},
+      set fillStyle(value) { calls.push(['fill', value]); },
+      fillRect(...args) { calls.push(['rect', ...args]); },
+    };
+    renderPreview(context, normaliseState({ mode: 'cube', cubePhase: 0.37, cubeSpeed: 0.8 }), 320, 180, time);
+    return calls;
+  };
+  assert.deepEqual(draw(0), draw(987654));
 });
 
 test('CSS output covers bands, harmony, and contrast truthfully', () => {

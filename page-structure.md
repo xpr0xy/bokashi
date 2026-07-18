@@ -2,7 +2,7 @@
 
 BOKASHI remains one route and twelve instrument modes. State lives in the hash and localStorage. There is no marketing page before the tool.
 
-## desktop application shell
+## fullscreen application shell
 
 1. bounded editorial masthead with history, mutate, share, and export
 2. viewport-bound workspace
@@ -14,20 +14,19 @@ BOKASHI remains one route and twelve instrument modes. State lives in the hash a
    - fixed-width inspector with independently scrolling controls
 3. compact source/licence status bar
 
-The document itself does not scroll above 1020px. The centre stack owns all remaining height. Recipe and Colour ledger headers stay visible while their rows scroll. Changing or scrolling a ledger cannot move the canvas, inspector, rail, masthead, or footer.
+The document itself never scrolls during normal instrument use. The centre stack owns the remaining height. Recipe and Colour ledger headers stay visible while their rows scroll. Changing or scrolling a ledger cannot move the canvas, inspector, rail, masthead, or footer.
 
 ## tablet
 
-The mode rail and canvas remain paired. The inspector follows as a full-width region. Browse ledgers are capped to the available viewport and scroll internally. The document may scroll only to reach the inspector because a truthful three-column application cannot fit at this width.
+The mode rail and canvas remain paired above a full-width, internally scrolling inspector. Browse ledgers divide the bounded canvas stack and scroll internally. The page remains locked to the viewport.
 
 ## mobile
 
 1. compact masthead and actions
 2. artwork, caption, and compact specimen strip
-3. horizontal mode rail
-4. controls
-5. bounded Recipe or Colour ledger
-6. source/licence footer
+3. persistent All modes trigger and horizontally scrolling mode rail
+4. internally scrolling controls
+5. bounded Recipe or Colour ledger when active
 
 Dense ledgers never expand to their full row count. They use internal scrolling with a sticky heading and visible scroll affordance. Export remains a modal bottom sheet with locked background position.
 
@@ -39,7 +38,7 @@ Dense ledgers never expand to their full row count. They use internal scrolling 
 4. Air
 5. Dither
 6. Cube
-7. Image
+7. Source lab
 8. 3D plane
 9. Colours
 10. Harmony

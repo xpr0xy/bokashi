@@ -8,16 +8,16 @@ import {
 
 const MODE_LABELS = {
   make: 'Make', traditional: 'Recipes', mono: 'Mono', air: 'Air', dither: 'Dither',
-  cube: 'Cube', image: 'Image', plane: '3D plane', catalogue: 'Colours',
+  cube: 'Cube', image: 'Source lab', plane: '3D plane', catalogue: 'Colours',
   harmony: 'Harmony', bands: 'Bands', contrast: 'Contrast',
 };
 const MODE_NOTES = {
-  make: 'construct', traditional: 'curated', mono: 'tonal', air: 'diffuse', dither: 'matrix',
-  cube: 'sequence', image: 'sample', plane: 'spatial', catalogue: 'register',
+  make: 'construct', traditional: 'generated', mono: 'tonal', air: 'diffuse', dither: 'matrix',
+  cube: 'sequence', image: 'acquire', plane: 'spatial', catalogue: 'register',
   harmony: 'relate', bands: 'repeat', contrast: 'prove',
 };
 const STATE_LIMITS = {
-  angle: [0, 360], centerX: [0, 100], centerY: [0, 100], blur: [0, 180], cubeSpeed: [0.1, 1.5],
+  angle: [0, 360], centerX: [0, 100], centerY: [0, 100], blur: [0, 180], cubeSpeed: [0.1, 1.5], cubePhase: [0, 1],
   cubeCount: [4, 24], monoDark: [10, 90], monoLight: [5, 90], airSpread: [20, 100], airStrength: [10, 100],
   ditherScale: [1, 12], ditherBias: [-45, 45], imagePaletteCount: [2, 5], harmonySpread: [10, 90],
   bandScale: [4, 96], bandGap: [0, 80], bandOffset: [0, 100],
@@ -63,15 +63,15 @@ app.innerHTML = `
         <button class="quiet-button icon-button" id="redo" type="button" aria-label="Redo" title="Redo (⇧⌘Z)" disabled>↷</button>
       </div>
       <button class="quiet-button" id="randomise" type="button">Mutate</button>
-      <button class="quiet-button" id="share-state" type="button">Copy state URL</button>
+      <button class="quiet-button" id="share-state" type="button"><span class="desktop-copy">Copy state URL</span><span class="mobile-copy">Copy URL</span></button>
       <button class="ink-button" id="open-export" type="button" aria-expanded="false" aria-controls="export-panel">Export</button>
     </div>
   </header>
   <main id="workspace" class="workspace">
     <nav class="mode-rail" aria-label="Instrument modes">
       <p class="rail-index">MODE</p>
-      ${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span class="mode-number">${String(index + 1).padStart(2, '0')}</span><span class="mode-name">${MODE_LABELS[mode]}<small>${MODE_NOTES[mode]}</small></span></button>`).join('')}
-      <span class="mode-more" aria-hidden="true">→</span>
+      <button class="mode-more" id="open-mode-index" type="button" aria-haspopup="dialog" aria-controls="mode-index-dialog">All modes</button>
+      <div class="mode-list">${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span class="mode-number">${String(index + 1).padStart(2, '0')}</span><span class="mode-name">${MODE_LABELS[mode]}<small>${MODE_NOTES[mode]}</small></span></button>`).join('')}</div>
     </nav>
     <div class="canvas-stack">
       <section class="stage-column" aria-label="Gradient output">
@@ -120,6 +120,14 @@ app.innerHTML = `
       </section>
     </aside>
   </main>
+  <dialog class="mode-index-dialog" id="mode-index-dialog" aria-labelledby="mode-index-title">
+    <div class="mode-index-head"><div><p>INSTRUMENT INDEX</p><h2 id="mode-index-title">All modes</h2></div><button type="button" id="close-mode-index" aria-label="Close mode index">×</button></div>
+    ${[
+      ['Construct', ['make', 'traditional', 'mono', 'air']],
+      ['Process', ['dither', 'cube', 'image', 'plane']],
+      ['Reference', ['catalogue', 'harmony', 'bands', 'contrast']],
+    ].map(([group, modes]) => `<section><h3>${group}</h3><div>${modes.map((mode) => { const index = MODES.indexOf(mode); return `<button type="button" data-mode-index="${mode}"><span>${String(index + 1).padStart(2, '0')}</span><strong>${MODE_LABELS[mode]}</strong><small>${MODE_NOTES[mode]}</small></button>`; }).join('')}</div></section>`).join('')}
+  </dialog>
   <footer class="site-footer">
     <p>250 colours · 120 recipes · 12 instruments · 6 export formats</p>
     <p>Colour data adapted from <a href="https://github.com/xiaohk/nippon-colors" target="_blank" rel="noreferrer">xiaohk/nippon-colors</a> under MIT. Reference, not historical scholarship.</p>
@@ -240,7 +248,7 @@ function makerControls(extra = '') {
 function focusSelectorForControl(element) {
   if (!element || !controls.contains(element)) return null;
   if (element.id) return `#${CSS.escape(element.id)}`;
-  const attribute = ['data-state', 'data-gradient-type', 'data-stop-position', 'data-open-colour', 'data-remove-stop', 'data-recipe-step', 'data-add-stop', 'data-reverse-stops', 'data-distribute-stops', 'data-cube-direction', 'data-plane-space', 'data-open-mono', 'data-open-harmony', 'data-swap-contrast'].find((name) => element.hasAttribute(name));
+  const attribute = ['data-state', 'data-gradient-type', 'data-stop-position', 'data-open-colour', 'data-remove-stop', 'data-recipe-step', 'data-add-stop', 'data-reverse-stops', 'data-distribute-stops', 'data-cube-direction', 'data-source-type', 'data-plane-space', 'data-open-mono', 'data-open-harmony', 'data-swap-contrast'].find((name) => element.hasAttribute(name));
   return attribute ? `[${attribute}="${CSS.escape(element.getAttribute(attribute))}"]` : null;
 }
 
@@ -283,16 +291,19 @@ function renderControls() {
   } else if (state.mode === 'cube') {
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Sequence colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>
       <div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div>
-      <label>Speed <output>${state.cubeSpeed.toFixed(2)}×</output><input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label>
+      <label>Phase <output>${Math.round(state.cubePhase * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${state.cubePhase}" data-state="cubePhase"></label>
+      <label>Phase multiplier <output>${state.cubeSpeed.toFixed(2)}×</output><input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label>
       <label>Depth <output>${state.cubeCount}</output><input type="range" min="4" max="24" value="${state.cubeCount}" data-state="cubeCount"></label>
       <div class="segmented" role="group" aria-label="Sequence direction"><button type="button" data-cube-direction="1" class="${state.cubeDirection === 1 ? 'is-active' : ''}">Outward</button><button type="button" data-cube-direction="-1" class="${state.cubeDirection === -1 ? 'is-active' : ''}">Inward</button></div></div>`;
   } else if (state.mode === 'image') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div>
+    const sourceTabs = `<div class="control-group source-switcher"><div class="section-heading"><h2>Source</h2><span>LOCAL</span></div><div class="segmented" role="group" aria-label="Palette source">${[['image', 'Image'], ['feeling', 'Feeling'], ['audio', 'Audio']].map(([type, label]) => `<button type="button" data-source-type="${type}" class="${state.sourceType === type ? 'is-active' : ''}">${label}</button>`).join('')}</div></div>`;
+    const sourcePanel = state.sourceType === 'image' ? `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div>
       <div class="field-pair"><label>Colours<select data-state="imagePaletteCount">${[2, 3, 4, 5].map((count) => `<option value="${count}" ${count === state.imagePaletteCount ? 'selected' : ''}>${count}</option>`).join('')}</select></label><label>Order<select data-state="imageSort"><option value="dominance" ${state.imageSort === 'dominance' ? 'selected' : ''}>dominance</option><option value="luminance" ${state.imageSort === 'luminance' ? 'selected' : ''}>luminance</option></select></label></div>
-      <label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || `Extract ${state.imagePaletteCount} dominant colours and match them to the catalogue.`}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
-      <div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button><p class="microcopy" id="feeling-status" role="status" aria-live="polite"></p></div>
-      <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status" role="status" aria-live="polite">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>
-      ${makerControls()}`;
+      <label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || `Extract ${state.imagePaletteCount} dominant colours and match them to the catalogue.`}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>`
+      : state.sourceType === 'feeling'
+        ? `<div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button><p class="microcopy" id="feeling-status" role="status" aria-live="polite"></p></div>`
+        : `<div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status" role="status" aria-live="polite">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>`;
+    controls.innerHTML = `${sourceTabs}${sourcePanel}${makerControls()}`;
   } else if (state.mode === 'plane') {
     const selected = state.planeSelected == null ? null : COLORS[state.planeSelected];
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Colour plane</h2><span>${state.planeSpace.toUpperCase()}</span></div>
@@ -327,13 +338,14 @@ function renderControls() {
 }
 
 function renderLedger(filter = '') {
+  document.querySelector('#workspace').classList.toggle('has-ledger', ['traditional', 'catalogue'].includes(state.mode));
   if (state.mode === 'traditional') {
     ledger.hidden = false;
     const matches = RECIPES.map((recipe, index) => ({ recipe, index })).filter(({ recipe }) => (
       (recipeFilters.family === 'all' || recipe.family === recipeFilters.family)
       && (recipeFilters.type === 'all' || recipe.type === recipeFilters.type)
     ));
-    ledger.innerHTML = `<div class="ledger-head"><h2>Recipe ledger</h2><p>${matches.length} of ${RECIPES.length} shown. Open any recipe, then edit it freely.</p></div><div class="recipe-ledger" tabindex="0" aria-label="Scrollable recipe ledger">${matches.map(({ recipe, index }) => {
+    ledger.innerHTML = `<div class="ledger-head"><h2>Generated recipe ledger</h2><p>${matches.length} of ${RECIPES.length} deterministic studies shown. Open any recipe, then edit it freely.</p></div><div class="recipe-ledger" tabindex="0" aria-label="Scrollable generated recipe ledger">${matches.map(({ recipe, index }) => {
       const css = recipe.type === 'linear'
         ? `linear-gradient(${recipe.angle}deg, ${recipe.stops.map((stop) => `${COLORS[stop.color].hex} ${stop.position}%`).join(',')})`
         : recipe.type === 'radial'
@@ -391,7 +403,7 @@ function renderCaption() {
     air: 'DIFFUSION',
     dither: state.pattern,
     cube: 'SEQUENCE',
-    image: sampledImage ? 'SAMPLED SOURCE' : 'SOURCE → PALETTE',
+    image: state.sourceType === 'image' && sampledImage ? 'SAMPLED IMAGE' : `${state.sourceType.toUpperCase()} → PALETTE`,
     plane: `${state.planeSpace.toUpperCase()} SPACE`,
     catalogue: `${state.catalogueSort.toUpperCase()} MOSAIC`,
     harmony: `${state.harmonyScheme.toUpperCase()} HARMONY`,
@@ -436,7 +448,7 @@ function renderCaption() {
         : state.mode === 'dither'
           ? `${state.pattern} pattern at ${state.angle} degrees, cell scale ${state.ditherScale}, bias ${state.ditherBias}`
           : state.mode === 'cube'
-            ? `${state.cubeCount} layers moving ${state.cubeDirection === 1 ? 'outward' : 'inward'} at ${state.cubeSpeed.toFixed(2)} times`
+            ? `${state.cubeCount} deterministic layers ${state.cubeDirection === 1 ? 'outward' : 'inward'}, phase ${Math.round(state.cubePhase * 100)} percent at ${state.cubeSpeed.toFixed(2)} times`
             : state.mode === 'harmony'
               ? `${state.harmonyScheme} from ${COLORS[state.monoBase].romaji}, spread ${state.harmonySpread} degrees`
               : state.mode === 'bands'
@@ -498,13 +510,10 @@ function resizeCanvas() {
   renderCanvas();
 }
 
-function renderCanvas(time = performance.now()) {
+function renderCanvas() {
   if (animationFrame) cancelAnimationFrame(animationFrame);
-  planePoints = renderPreview(ctx, state, canvas.width, canvas.height, time) || [];
+  planePoints = renderPreview(ctx, state, canvas.width, canvas.height) || [];
   renderCaption();
-  if (state.mode === 'cube' && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    animationFrame = requestAnimationFrame(renderCanvas);
-  }
 }
 
 function commit({ controlsOnly = false, ledgerOnly = false, record = true } = {}) {
@@ -567,8 +576,8 @@ function bindControlInputs() {
       if (field === 'catalogueSort') renderLedger();
       const output = input.closest('label')?.querySelector('output');
       if (output) {
-        const unit = { angle: '°', harmonySpread: '°', blur: 'px', bandScale: 'px', airSpread: '%', airStrength: '%', monoDark: '%', monoLight: '%', bandGap: '%', bandOffset: '%', cubeSpeed: '×', ditherScale: '×' }[field] || '';
-        output.textContent = `${input.value}${unit}`;
+        const unit = { angle: '°', harmonySpread: '°', blur: 'px', bandScale: 'px', airSpread: '%', airStrength: '%', monoDark: '%', monoLight: '%', bandGap: '%', bandOffset: '%', cubeSpeed: '×', cubePhase: '%', ditherScale: '×' }[field] || '';
+        output.textContent = `${field === 'cubePhase' ? Math.round(Number(input.value) * 100) : input.value}${unit}`;
       }
     });
     input.addEventListener('change', () => { recordHistory(); renderControls(); });
@@ -766,6 +775,7 @@ controls.addEventListener('click', (event) => {
     commit();
   }
   if (target.dataset.cubeDirection) { state.cubeDirection = Number(target.dataset.cubeDirection); commit(); }
+  if (target.dataset.sourceType) { state.sourceType = target.dataset.sourceType; commit(); }
   if (target.dataset.planeSpace) { state.planeSpace = target.dataset.planeSpace; state.planeSelected = null; commit(); }
   if (target.hasAttribute('data-swap-contrast')) {
     const first = state.stops[0].color;
@@ -788,20 +798,30 @@ document.querySelector('.mode-rail').addEventListener('click', (event) => {
   commit();
   animateStageChange();
 });
-const modeRail = document.querySelector('.mode-rail');
+const modeRail = document.querySelector('.mode-list');
+const modeIndexDialog = document.querySelector('#mode-index-dialog');
+document.querySelector('#open-mode-index').addEventListener('click', () => modeIndexDialog.showModal());
+document.querySelector('#close-mode-index').addEventListener('click', () => modeIndexDialog.close());
+modeIndexDialog.addEventListener('click', (event) => {
+  if (event.target === modeIndexDialog) { modeIndexDialog.close(); return; }
+  const button = event.target.closest('[data-mode-index]');
+  if (!button) return;
+  state.mode = button.dataset.modeIndex;
+  modeIndexDialog.close();
+  commit();
+  animateStageChange();
+});
 function revealActiveMode() {
   const active = modeRail.querySelector('.is-active');
   if (!active) return;
+  const railRect = modeRail.getBoundingClientRect();
+  const activeRect = active.getBoundingClientRect();
   if (innerWidth <= 680) {
-    if (active.offsetLeft < modeRail.scrollLeft) modeRail.scrollLeft = active.offsetLeft;
-    else if (active.offsetLeft + active.offsetWidth > modeRail.scrollLeft + modeRail.clientWidth) {
-      modeRail.scrollLeft = active.offsetLeft + active.offsetWidth - modeRail.clientWidth;
-    }
+    if (activeRect.left < railRect.left) modeRail.scrollLeft = Math.floor(modeRail.scrollLeft + activeRect.left - railRect.left);
+    else if (activeRect.right > railRect.right) modeRail.scrollLeft = Math.ceil(modeRail.scrollLeft + activeRect.right - railRect.right);
   } else {
-    if (active.offsetTop < modeRail.scrollTop) modeRail.scrollTop = active.offsetTop;
-    else if (active.offsetTop + active.offsetHeight > modeRail.scrollTop + modeRail.clientHeight) {
-      modeRail.scrollTop = active.offsetTop + active.offsetHeight - modeRail.clientHeight;
-    }
+    if (activeRect.top < railRect.top) modeRail.scrollTop = Math.floor(modeRail.scrollTop + activeRect.top - railRect.top);
+    else if (activeRect.bottom > railRect.bottom) modeRail.scrollTop = Math.ceil(modeRail.scrollTop + activeRect.bottom - railRect.bottom);
   }
   updateModeContinuation();
 }
@@ -882,6 +902,7 @@ function mutate() {
     if (state.mode === 'cube') {
       state.cubeCount = 7 + seed % 17;
       state.cubeDirection *= -1;
+      state.cubePhase = (state.cubePhase + 0.17 + seed / 100) % 1;
     }
     if (state.mode === 'bands') {
       state.bandScale = 10 + seed % 50;
@@ -1033,11 +1054,6 @@ mobileExportQuery.addEventListener('change', () => {
   if (!exportPanel.hidden) toggleExport(false);
 });
 function fitPreviewFrame() {
-  if (innerWidth <= 1020) {
-    previewStage.style.removeProperty('width');
-    previewStage.style.removeProperty('height');
-    return;
-  }
   const stageColumn = previewStage.closest('.stage-column');
   const stageStyle = getComputedStyle(stageColumn);
   const availableWidth = stageColumn.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight);

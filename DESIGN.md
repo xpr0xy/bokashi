@@ -20,7 +20,7 @@ BOKASHI is a colour instrument, not a gallery homepage. The mutable artwork occu
 
 ## geometry
 - radius: 0 for rails, buttons, fields, preview. Circular stop and range handles only.
-- desktop shell: 11.5rem numbered mode rail, flexible artwork field, 19rem inspector. At widths above 1020px the app occupies one dynamic viewport; the document does not scroll.
+- fullscreen shell: the app occupies one dynamic viewport at desktop, tablet, and mobile sizes; mode lists, controls, and browse ledgers own the scrolling rather than the document.
 - the artwork and its specimen register are vertically composed as one folio plate inside a bounded centre stack. Recipe and colour ledgers share that stack and scroll internally beneath the artwork. Their headers remain visible while rows move.
 - mode rail, inspector controls, recipe ledger, and colour register each own their overflow. Wheel or trackpad input over one region must not move another region or the document.
 - tablet keeps the two-column artwork shell and allows the inspector to follow below; browse ledgers remain height-bounded and independently scrollable.
@@ -40,8 +40,8 @@ Every mode must own a distinct renderer or a distinct workflow that visibly chan
 - Mono: catalogue base plus adjustable shadow and paper endpoints.
 - Air: diffusion, field spread, field strength, origin, and editable colours.
 - Dither: matrix family, cell scale, threshold bias, angle, and two endpoints.
-- Cube: colour sequence, speed, depth count, and direction.
-- Image: local source extraction with requested palette count, luminance ordering, text mapping, and audio mapping.
+- Cube: deterministic colour sequence with shared phase, multiplier, depth count, and direction.
+- Source lab: one tabbed local workflow at a time for image extraction, feeling mapping, or audio analysis.
 - 3D plane: HSL and RGB projections, rotation, selection, keyboard traversal, and handoff to Make.
 - Colours: bounded searchable register, favourites, deterministic sort, direct copy, and handoff to Make.
 - Harmony: catalogue-quantised analogous, complementary, split, triad, and tetrad schemes from a chosen base.

@@ -21,6 +21,7 @@ export const DEFAULT_STATE = {
   recipe: 0,
   monoBase: 162,
   cubeSpeed: 0.45,
+  cubePhase: 0.28,
   cubeCount: 14,
   cubeDirection: 1,
   monoDark: 56,
@@ -31,6 +32,7 @@ export const DEFAULT_STATE = {
   ditherBias: 0,
   imagePaletteCount: 5,
   imageSort: 'dominance',
+  sourceType: 'image',
   planeRotation: { x: -0.28, y: 0.62 },
   planeSelected: null,
   planeSpace: 'hsl',
@@ -135,6 +137,7 @@ export function normaliseState(input = {}) {
   state.recipe = clamp(Math.floor(finite(source.recipe, DEFAULT_STATE.recipe)), 0, RECIPES.length - 1);
   state.monoBase = clamp(Math.floor(finite(source.monoBase, DEFAULT_STATE.monoBase)), 0, COLORS.length - 1);
   state.cubeSpeed = clamp(finite(source.cubeSpeed, DEFAULT_STATE.cubeSpeed), 0.1, 1.5);
+  state.cubePhase = clamp(finite(source.cubePhase, DEFAULT_STATE.cubePhase), 0, 1);
   state.cubeCount = clamp(Math.round(finite(source.cubeCount, DEFAULT_STATE.cubeCount)), 4, 24);
   state.cubeDirection = Number(source.cubeDirection) === -1 ? -1 : 1;
   state.monoDark = clamp(Math.round(finite(source.monoDark, DEFAULT_STATE.monoDark)), 10, 90);
@@ -145,6 +148,7 @@ export function normaliseState(input = {}) {
   state.ditherBias = clamp(Math.round(finite(source.ditherBias, DEFAULT_STATE.ditherBias)), -45, 45);
   state.imagePaletteCount = clamp(Math.round(finite(source.imagePaletteCount, DEFAULT_STATE.imagePaletteCount)), 2, 5);
   state.imageSort = ['dominance', 'luminance'].includes(source.imageSort) ? source.imageSort : DEFAULT_STATE.imageSort;
+  state.sourceType = ['image', 'feeling', 'audio'].includes(source.sourceType) ? source.sourceType : DEFAULT_STATE.sourceType;
   state.planeSpace = ['hsl', 'rgb'].includes(source.planeSpace) ? source.planeSpace : DEFAULT_STATE.planeSpace;
   state.catalogueSort = SORT_ORDERS.includes(source.catalogueSort) ? source.catalogueSort : DEFAULT_STATE.catalogueSort;
   state.harmonyScheme = HARMONY_SCHEMES.includes(source.harmonyScheme) ? source.harmonyScheme : DEFAULT_STATE.harmonyScheme;
@@ -188,6 +192,7 @@ export function stateToToken(state) {
     r: state.recipe,
     o: state.monoBase,
     v: Number(state.cubeSpeed.toFixed(2)),
+    cp: Number(state.cubePhase.toFixed(3)),
     cd: state.cubeCount,
     cr: state.cubeDirection,
     md: state.monoDark,
@@ -198,6 +203,7 @@ export function stateToToken(state) {
     db: state.ditherBias,
     ic: state.imagePaletteCount,
     is: state.imageSort,
+    it: state.sourceType,
     ps: state.planeSpace,
     cs: state.catalogueSort,
     hs: state.harmonyScheme,
@@ -227,6 +233,7 @@ export function tokenToState(token) {
       recipe: compact.r,
       monoBase: compact.o,
       cubeSpeed: compact.v,
+      cubePhase: compact.cp,
       cubeCount: compact.cd,
       cubeDirection: compact.cr,
       monoDark: compact.md,
@@ -237,6 +244,7 @@ export function tokenToState(token) {
       ditherBias: compact.db,
       imagePaletteCount: compact.ic,
       imageSort: compact.is,
+      sourceType: compact.it,
       planeSpace: compact.ps,
       catalogueSort: compact.cs,
       harmonyScheme: compact.hs,
@@ -397,12 +405,12 @@ function renderAir(ctx, state, width, height) {
   ctx.restore();
 }
 
-function renderCube(ctx, state, width, height, time) {
+function renderCube(ctx, state, width, height) {
   ctx.fillStyle = '#ECE9DF';
   ctx.fillRect(0, 0, width, height);
   const stops = getModeStops(state);
   const count = state.cubeCount;
-  const pulse = ((time * 0.0001 * state.cubeSpeed * state.cubeDirection) % 1 + 1) % 1;
+  const pulse = ((state.cubePhase * state.cubeSpeed * state.cubeDirection) % 1 + 1) % 1;
   for (let index = count - 1; index >= 0; index -= 1) {
     const phase = (index / count + pulse) % 1;
     const size = Math.min(width, height) * (0.12 + phase * 1.15);
@@ -605,7 +613,7 @@ export function renderPreview(ctx, state, width, height, time = 0) {
   ctx.clearRect(0, 0, width, height);
   if (state.mode === 'dither') renderDither(ctx, state, width, height);
   else if (state.mode === 'air') renderAir(ctx, state, width, height);
-  else if (state.mode === 'cube') renderCube(ctx, state, width, height, time);
+  else if (state.mode === 'cube') renderCube(ctx, state, width, height);
   else if (state.mode === 'plane') return renderPlane(ctx, state, width, height);
   else if (state.mode === 'catalogue') renderCatalogue(ctx, state, width, height);
   else if (state.mode === 'bands') renderBands(ctx, state, width, height);

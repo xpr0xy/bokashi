@@ -8,11 +8,11 @@ A free, accountless browser instrument for exploring traditional Japanese colour
 - multi-stop linear, radial, and conic gradient maker
 - 120 deterministic recipes in an independently scrolling, filterable ledger
 - searchable, sortable colour register with copy and local favourites
-- monochrome, atmospheric air, six-pattern dither, and configurable animated cube instruments
-- image palette extraction with configurable count/order plus audio and feeling palette generation
+- monochrome, atmospheric air, six-pattern dither, and deterministic phase-scrubbed cube instruments
+- tabbed local source lab for image extraction, feeling mapping, and audio analysis
 - interactive HSL/RGB projected 3D colour plane
 - catalogue-derived harmony generator, repeatable band field, and WCAG contrast proof
-- viewport-bound desktop shell with independently scrolling modes, controls, and browse registers
+- viewport-bound desktop, tablet, and mobile shell with independently scrolling modes, controls, and browse registers
 - PNG, JPG, TIFF, SVG, CSS, and JSON export at configurable dimensions
 - local favourites, persistence, and reproducible share URLs
 
