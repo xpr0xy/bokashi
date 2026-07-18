@@ -8,10 +8,10 @@
 5. Favourite locally, copy CSS/state link, or open export.
 
 ## browse
-Search kanji, romaji, or hex. Select a colour to make it the active stop. Toggle favourite without changing selection. Filter recipe ledger by family/mode.
+Search kanji, romaji, or hex. Sort the register by source, hue, lightness, or name. Open a colour in Make, copy its hex, or toggle favourite without changing selection. Filter the recipe ledger by family and gradient type while the artwork remains visible.
 
 ## image
-Choose or drop an image. Validate file and decode. Downsample client-side, cluster pixels into 6 dominant colours, map each to nearest catalogue colour, then apply as gradient stops. Errors preserve prior state.
+Choose or drop an image. Validate and decode it locally. Downsample client-side, extract 2–5 dominant colours, optionally order them by luminance, map each to the nearest catalogue colour, then apply them as gradient stops. Errors preserve prior state.
 
 ## audio/feeling
 Text feeling maps deterministically to hue/value/chroma targets and selects nearest catalogue colours. Optional audio file analysis reads low/mid/high energy and brightness, then creates a reproducible palette.

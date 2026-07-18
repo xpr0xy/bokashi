@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COLORS } from '../src/colors.js';
 import {
-  DEFAULT_STATE, RECIPES, clamp, createRecipes, cssForState, extractPaletteFromImage,
-  feelingPalette, nearestColour, normaliseState, renderPreview, rgbaToTiff, stateToToken, tokenToState,
+  DEFAULT_STATE, MODES, RECIPES, clamp, contrastRatio, createRecipes, cssForState, extractPaletteFromImage,
+  feelingPalette, harmonyPalette, nearestColour, normaliseState, renderPreview, rgbaToTiff, stateToToken, tokenToState,
 } from '../src/core.js';
 
 test('catalogue and recipe inventory are complete', () => {
@@ -28,6 +28,74 @@ test('state tokens round-trip core controls and plane state', () => {
   assert.deepEqual(restored.stops, state.stops);
   assert.deepEqual(restored.planeRotation, state.planeRotation);
   assert.equal(restored.planeSelected, 143);
+});
+
+test('state tokens round-trip expanded renderer controls', () => {
+  const state = normaliseState({
+    ...DEFAULT_STATE,
+    mode: 'bands',
+    monoDark: 72,
+    monoLight: 41,
+    airSpread: 88,
+    airStrength: 63,
+    ditherScale: 7,
+    ditherBias: -18,
+    cubeCount: 21,
+    cubeDirection: -1,
+    imagePaletteCount: 3,
+    imageSort: 'luminance',
+    planeSpace: 'rgb',
+    catalogueSort: 'hue',
+    harmonyScheme: 'split',
+    harmonySpread: 42,
+    bandScale: 27,
+    bandGap: 19,
+    bandOffset: 64,
+  });
+  const restored = tokenToState(stateToToken(state));
+  for (const key of ['mode', 'monoDark', 'monoLight', 'airSpread', 'airStrength', 'ditherScale', 'ditherBias', 'cubeCount', 'cubeDirection', 'imagePaletteCount', 'imageSort', 'planeSpace', 'catalogueSort', 'harmonyScheme', 'harmonySpread', 'bandScale', 'bandGap', 'bandOffset']) {
+    assert.equal(restored[key], state[key], key);
+  }
+});
+
+test('expanded controls clamp and enum values recover safely', () => {
+  const state = normaliseState({
+    monoDark: 200, monoLight: -2, airSpread: 0, airStrength: 999,
+    ditherScale: 99, ditherBias: -999, cubeCount: 2, cubeDirection: 7,
+    imagePaletteCount: 19, imageSort: 'garbage', planeSpace: 'lab', catalogueSort: 'garbage',
+    harmonyScheme: 'garbage', harmonySpread: 500, bandScale: 0, bandGap: 100, bandOffset: -5,
+  });
+  assert.deepEqual({ monoDark: state.monoDark, monoLight: state.monoLight }, { monoDark: 90, monoLight: 5 });
+  assert.deepEqual({ airSpread: state.airSpread, airStrength: state.airStrength }, { airSpread: 20, airStrength: 100 });
+  assert.deepEqual({ ditherScale: state.ditherScale, ditherBias: state.ditherBias }, { ditherScale: 12, ditherBias: -45 });
+  assert.equal(state.cubeCount, 4);
+  assert.equal(state.cubeDirection, 1);
+  assert.equal(state.imagePaletteCount, 5);
+  assert.equal(state.imageSort, DEFAULT_STATE.imageSort);
+  assert.equal(state.planeSpace, DEFAULT_STATE.planeSpace);
+  assert.equal(state.catalogueSort, DEFAULT_STATE.catalogueSort);
+  assert.equal(state.harmonyScheme, DEFAULT_STATE.harmonyScheme);
+  assert.equal(state.harmonySpread, 90);
+  assert.deepEqual({ bandScale: state.bandScale, bandGap: state.bandGap, bandOffset: state.bandOffset }, { bandScale: 4, bandGap: 80, bandOffset: 0 });
+});
+
+test('new instrument inventory and colour calculations are deterministic', () => {
+  assert.deepEqual(MODES.slice(-3), ['harmony', 'bands', 'contrast']);
+  const state = normaliseState({ mode: 'harmony', monoBase: 72, harmonyScheme: 'triad', harmonySpread: 60 });
+  const first = harmonyPalette(state);
+  const second = harmonyPalette(state);
+  assert.deepEqual(first, second);
+  assert.equal(first.length, 3);
+  assert.equal(new Set(first).size, first.length);
+  first.forEach((index) => assert.ok(index >= 0 && index < COLORS.length));
+  assert.equal(contrastRatio('#000000', '#FFFFFF'), 21);
+  assert.equal(contrastRatio('#FFFFFF', '#FFFFFF'), 1);
+});
+
+test('CSS output covers bands, harmony, and contrast truthfully', () => {
+  assert.match(cssForState(normaliseState({ mode: 'bands' })), /repeating-linear-gradient/);
+  assert.match(cssForState(normaliseState({ mode: 'harmony' })), /gradient/);
+  assert.match(cssForState(normaliseState({ mode: 'contrast' })), /linear-gradient\(90deg/);
 });
 
 test('invalid state is clamped without throwing', () => {

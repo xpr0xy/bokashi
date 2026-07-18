@@ -1,7 +1,9 @@
 import { COLORS } from './colors.js';
 
-export const MODES = ['make', 'traditional', 'mono', 'air', 'dither', 'cube', 'image', 'plane', 'catalogue'];
+export const MODES = ['make', 'traditional', 'mono', 'air', 'dither', 'cube', 'image', 'plane', 'catalogue', 'harmony', 'bands', 'contrast'];
 export const DITHER_PATTERNS = ['bayer-2', 'bayer-4', 'bayer-8', 'lines', 'cross', 'noise'];
+export const HARMONY_SCHEMES = ['analogous', 'complement', 'split', 'triad', 'tetrad'];
+export const SORT_ORDERS = ['source', 'hue', 'lightness', 'name'];
 
 export const DEFAULT_STATE = {
   mode: 'make',
@@ -19,8 +21,25 @@ export const DEFAULT_STATE = {
   recipe: 0,
   monoBase: 162,
   cubeSpeed: 0.45,
+  cubeCount: 14,
+  cubeDirection: 1,
+  monoDark: 56,
+  monoLight: 70,
+  airSpread: 62,
+  airStrength: 78,
+  ditherScale: 1,
+  ditherBias: 0,
+  imagePaletteCount: 5,
+  imageSort: 'dominance',
   planeRotation: { x: -0.28, y: 0.62 },
   planeSelected: null,
+  planeSpace: 'hsl',
+  catalogueSort: 'source',
+  harmonyScheme: 'analogous',
+  harmonySpread: 30,
+  bandScale: 24,
+  bandGap: 12,
+  bandOffset: 0,
 };
 
 export function clamp(value, min, max) {
@@ -116,6 +135,23 @@ export function normaliseState(input = {}) {
   state.recipe = clamp(Math.floor(finite(source.recipe, DEFAULT_STATE.recipe)), 0, RECIPES.length - 1);
   state.monoBase = clamp(Math.floor(finite(source.monoBase, DEFAULT_STATE.monoBase)), 0, COLORS.length - 1);
   state.cubeSpeed = clamp(finite(source.cubeSpeed, DEFAULT_STATE.cubeSpeed), 0.1, 1.5);
+  state.cubeCount = clamp(Math.round(finite(source.cubeCount, DEFAULT_STATE.cubeCount)), 4, 24);
+  state.cubeDirection = Number(source.cubeDirection) === -1 ? -1 : 1;
+  state.monoDark = clamp(Math.round(finite(source.monoDark, DEFAULT_STATE.monoDark)), 10, 90);
+  state.monoLight = clamp(Math.round(finite(source.monoLight, DEFAULT_STATE.monoLight)), 5, 90);
+  state.airSpread = clamp(Math.round(finite(source.airSpread, DEFAULT_STATE.airSpread)), 20, 100);
+  state.airStrength = clamp(Math.round(finite(source.airStrength, DEFAULT_STATE.airStrength)), 10, 100);
+  state.ditherScale = clamp(Math.round(finite(source.ditherScale, DEFAULT_STATE.ditherScale)), 1, 12);
+  state.ditherBias = clamp(Math.round(finite(source.ditherBias, DEFAULT_STATE.ditherBias)), -45, 45);
+  state.imagePaletteCount = clamp(Math.round(finite(source.imagePaletteCount, DEFAULT_STATE.imagePaletteCount)), 2, 5);
+  state.imageSort = ['dominance', 'luminance'].includes(source.imageSort) ? source.imageSort : DEFAULT_STATE.imageSort;
+  state.planeSpace = ['hsl', 'rgb'].includes(source.planeSpace) ? source.planeSpace : DEFAULT_STATE.planeSpace;
+  state.catalogueSort = SORT_ORDERS.includes(source.catalogueSort) ? source.catalogueSort : DEFAULT_STATE.catalogueSort;
+  state.harmonyScheme = HARMONY_SCHEMES.includes(source.harmonyScheme) ? source.harmonyScheme : DEFAULT_STATE.harmonyScheme;
+  state.harmonySpread = clamp(Math.round(finite(source.harmonySpread, DEFAULT_STATE.harmonySpread)), 10, 90);
+  state.bandScale = clamp(Math.round(finite(source.bandScale, DEFAULT_STATE.bandScale)), 4, 96);
+  state.bandGap = clamp(Math.round(finite(source.bandGap, DEFAULT_STATE.bandGap)), 0, 80);
+  state.bandOffset = clamp(Math.round(finite(source.bandOffset, DEFAULT_STATE.bandOffset)), 0, 100);
   const planeRotation = source.planeRotation && typeof source.planeRotation === 'object' && !Array.isArray(source.planeRotation)
     ? source.planeRotation
     : DEFAULT_STATE.planeRotation;
@@ -152,6 +188,23 @@ export function stateToToken(state) {
     r: state.recipe,
     o: state.monoBase,
     v: Number(state.cubeSpeed.toFixed(2)),
+    cd: state.cubeCount,
+    cr: state.cubeDirection,
+    md: state.monoDark,
+    ml: state.monoLight,
+    as: state.airSpread,
+    ai: state.airStrength,
+    ds: state.ditherScale,
+    db: state.ditherBias,
+    ic: state.imagePaletteCount,
+    is: state.imageSort,
+    ps: state.planeSpace,
+    cs: state.catalogueSort,
+    hs: state.harmonyScheme,
+    hp: state.harmonySpread,
+    bs: state.bandScale,
+    bg: state.bandGap,
+    bo: state.bandOffset,
     q: [Number(state.planeRotation.x.toFixed(3)), Number(state.planeRotation.y.toFixed(3))],
     z: state.planeSelected,
   };
@@ -174,6 +227,23 @@ export function tokenToState(token) {
       recipe: compact.r,
       monoBase: compact.o,
       cubeSpeed: compact.v,
+      cubeCount: compact.cd,
+      cubeDirection: compact.cr,
+      monoDark: compact.md,
+      monoLight: compact.ml,
+      airSpread: compact.as,
+      airStrength: compact.ai,
+      ditherScale: compact.ds,
+      ditherBias: compact.db,
+      imagePaletteCount: compact.ic,
+      imageSort: compact.is,
+      planeSpace: compact.ps,
+      catalogueSort: compact.cs,
+      harmonyScheme: compact.hs,
+      harmonySpread: compact.hp,
+      bandScale: compact.bs,
+      bandGap: compact.bg,
+      bandOffset: compact.bo,
       planeRotation: Array.isArray(compact.q) ? { x: compact.q[0], y: compact.q[1] } : undefined,
       planeSelected: compact.z,
     });
@@ -186,21 +256,48 @@ export function getModeStops(state) {
   if (state.mode === 'traditional') return RECIPES[state.recipe].stops;
   if (state.mode === 'mono') {
     const base = COLORS[state.monoBase].rgb;
-    const dark = rgbToHex(mixRgb(base, [10, 10, 9], 0.56));
-    const pale = rgbToHex(mixRgb(base, [246, 244, 236], 0.7));
+    const dark = rgbToHex(mixRgb(base, [10, 10, 9], state.monoDark / 100));
+    const pale = rgbToHex(mixRgb(base, [246, 244, 236], state.monoLight / 100));
     return [{ hex: dark, position: 0 }, { hex: COLORS[state.monoBase].hex, position: 48 }, { hex: pale, position: 100 }];
+  }
+  if (state.mode === 'harmony') {
+    const indices = harmonyPalette(state);
+    return indices.map((color, index) => ({ color, hex: COLORS[color].hex, position: Math.round(index / Math.max(1, indices.length - 1) * 100) }));
+  }
+  if (state.mode === 'contrast') {
+    const endpoints = [state.stops[0], state.stops.at(-1)];
+    return endpoints.map((stop, index) => ({ ...stop, hex: COLORS[stop.color].hex, position: index * 100 }));
   }
   return state.stops.map((stop) => ({ ...stop, hex: COLORS[stop.color].hex }));
 }
 
 export function cssForState(state) {
+  if (state.mode === 'bands') {
+    const stops = getModeStops(state);
+    const scale = state.bandScale;
+    const phase = state.bandOffset / 100 * scale * stops.length;
+    const filled = scale * (1 - state.bandGap / 100);
+    const bands = stops.flatMap((stop, index) => {
+      const start = index * scale - phase;
+      const end = start + filled;
+      const next = (index + 1) * scale - phase;
+      const colour = stop.hex ?? COLORS[stop.color].hex;
+      return [`${colour} ${start}px`, `${colour} ${end}px`, `#E7E3D8 ${end}px`, `#E7E3D8 ${next}px`];
+    }).join(', ');
+    return `repeating-linear-gradient(${state.angle}deg, ${bands})`;
+  }
+  if (state.mode === 'contrast') {
+    const [foreground, background] = getModeStops(state);
+    return `linear-gradient(90deg, ${background.hex} 0%, ${background.hex} 50%, ${foreground.hex} 50%, ${foreground.hex} 100%)`;
+  }
   const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : state;
   const stops = getModeStops(state).map((stop) => `${stop.hex ?? COLORS[stop.color].hex} ${stop.position}%`).join(', ');
   if (state.mode === 'air') {
     const colours = getModeStops(state).map((stop, index) => {
       const x = (17 + index * 31 + state.centerX) % 100;
       const y = (23 + index * 27 + state.centerY) % 100;
-      return `radial-gradient(circle at ${x}% ${y}%, ${stop.hex ?? COLORS[stop.color].hex} 0%, transparent 62%)`;
+      const rgb = hexToRgb(stop.hex ?? COLORS[stop.color].hex);
+      return `radial-gradient(circle at ${x}% ${y}%, rgba(${rgb.join(',')},${state.airStrength / 100}) 0%, transparent ${state.airSpread}%)`;
     });
     return `${colours.join(', ')}, #E7E3D8`;
   }
@@ -265,8 +362,10 @@ export function renderDither(ctx, state, width, height) {
   const scale = Math.abs(width * dx) + Math.abs(height * dy) || 1;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const projected = ((x - width / 2) * dx + (y - height / 2) * dy) / scale + 0.5;
-      const colour = projected > ditherThreshold(state.pattern, x, y) ? last : first;
+      const sampleX = Math.floor(x / state.ditherScale);
+      const sampleY = Math.floor(y / state.ditherScale);
+      const projected = ((x - width / 2) * dx + (y - height / 2) * dy) / scale + 0.5 + state.ditherBias / 100;
+      const colour = projected > ditherThreshold(state.pattern, sampleX, sampleY) ? last : first;
       const offset = (y * width + x) * 4;
       image.data[offset] = colour[0];
       image.data[offset + 1] = colour[1];
@@ -287,9 +386,10 @@ function renderAir(ctx, state, width, height) {
   stops.forEach((stop, index) => {
     const x = width * (((17 + index * 31 + state.centerX) % 100) / 100);
     const y = height * (((23 + index * 27 + state.centerY) % 100) / 100);
-    const radius = scale * (0.33 + index * 0.06);
+    const radius = scale * (0.18 + state.airSpread / 100 * 0.45 + index * 0.03);
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    gradient.addColorStop(0, stop.hex ?? COLORS[stop.color].hex);
+    const rgb = hexToRgb(stop.hex ?? COLORS[stop.color].hex);
+    gradient.addColorStop(0, `rgba(${rgb.join(',')},${state.airStrength / 100})`);
     gradient.addColorStop(1, 'transparent');
     ctx.fillStyle = gradient;
     ctx.fillRect(-radius, -radius, width + radius * 2, height + radius * 2);
@@ -301,8 +401,8 @@ function renderCube(ctx, state, width, height, time) {
   ctx.fillStyle = '#ECE9DF';
   ctx.fillRect(0, 0, width, height);
   const stops = getModeStops(state);
-  const count = 14;
-  const pulse = (time * 0.0001 * state.cubeSpeed) % 1;
+  const count = state.cubeCount;
+  const pulse = ((time * 0.0001 * state.cubeSpeed * state.cubeDirection) % 1 + 1) % 1;
   for (let index = count - 1; index >= 0; index -= 1) {
     const phase = (index / count + pulse) % 1;
     const size = Math.min(width, height) * (0.12 + phase * 1.15);
@@ -327,16 +427,65 @@ export function colourToHsl(rgb) {
   return [(hue + 360) % 360, saturation, light];
 }
 
-export function projectColourPlane(width, height, rotation = DEFAULT_STATE.planeRotation) {
+export function hslToRgb(hue, saturation, lightness) {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const sector = ((hue % 360) + 360) % 360 / 60;
+  const x = chroma * (1 - Math.abs(sector % 2 - 1));
+  const pairs = [[chroma, x, 0], [x, chroma, 0], [0, chroma, x], [0, x, chroma], [x, 0, chroma], [chroma, 0, x]];
+  const [r, g, b] = pairs[Math.floor(sector) % 6];
+  const match = lightness - chroma / 2;
+  return [r, g, b].map((channel) => Math.round((channel + match) * 255));
+}
+
+export function harmonyPalette(state) {
+  const base = COLORS[state.monoBase];
+  const [hue, saturation, lightness] = colourToHsl(base.rgb);
+  const spread = state.harmonySpread;
+  const offsets = {
+    analogous: [-spread, 0, spread],
+    complement: [0, 180],
+    split: [0, 180 - spread, 180 + spread],
+    triad: [0, 120, 240],
+    tetrad: [0, 90, 180, 270],
+  }[state.harmonyScheme] || [0, 180];
+  const used = new Set();
+  return offsets.map((offset) => {
+    const target = hslToRgb(hue + offset, Math.max(0.18, saturation), lightness);
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    COLORS.forEach((colour, index) => {
+      if (used.has(index)) return;
+      const distance = Math.hypot(colour.rgb[0] - target[0], colour.rgb[1] - target[1], colour.rgb[2] - target[2]);
+      if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
+    });
+    used.add(bestIndex);
+    return bestIndex;
+  });
+}
+
+export function contrastRatio(first, second) {
+  const bright = Math.max(luminance(first), luminance(second));
+  const dark = Math.min(luminance(first), luminance(second));
+  return Number(((bright + 0.05) / (dark + 0.05)).toFixed(2));
+}
+
+export function projectColourPlane(width, height, rotation = DEFAULT_STATE.planeRotation, space = DEFAULT_STATE.planeSpace) {
   const cosY = Math.cos(rotation.y);
   const sinY = Math.sin(rotation.y);
   const cosX = Math.cos(rotation.x);
   const sinX = Math.sin(rotation.x);
   return COLORS.map((colour, index) => {
-    const [hue, saturation, light] = colourToHsl(colour.rgb);
-    let x = Math.cos(hue * Math.PI / 180) * saturation;
-    let z = Math.sin(hue * Math.PI / 180) * saturation;
-    let y = (light - 0.5) * 1.8;
+    let x; let y; let z;
+    if (space === 'rgb') {
+      x = colour.rgb[0] / 255 - 0.5;
+      y = colour.rgb[1] / 255 - 0.5;
+      z = colour.rgb[2] / 255 - 0.5;
+    } else {
+      const [hue, saturation, light] = colourToHsl(colour.rgb);
+      x = Math.cos(hue * Math.PI / 180) * saturation;
+      z = Math.sin(hue * Math.PI / 180) * saturation;
+      y = (light - 0.5) * 1.8;
+    }
     const rx = x * cosY - z * sinY;
     const rz = x * sinY + z * cosY;
     const ry = y * cosX - rz * sinX;
@@ -358,7 +507,7 @@ export function renderPlane(ctx, state, width, height) {
   ].forEach(([x1, y1, x2, y2]) => {
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
   });
-  const points = projectColourPlane(width, height, state.planeRotation);
+  const points = projectColourPlane(width, height, state.planeRotation, state.planeSpace);
   points.forEach((point) => {
     ctx.fillStyle = COLORS[point.index].hex;
     ctx.beginPath();
@@ -377,12 +526,22 @@ export function renderPlane(ctx, state, width, height) {
   return points;
 }
 
-export function renderCatalogue(ctx, width, height) {
+export function sortColourIndices(order = 'source') {
+  const indices = COLORS.map((_, index) => index);
+  if (order === 'hue') return indices.sort((a, b) => colourToHsl(COLORS[a].rgb)[0] - colourToHsl(COLORS[b].rgb)[0]);
+  if (order === 'lightness') return indices.sort((a, b) => luminance(COLORS[a].hex) - luminance(COLORS[b].hex));
+  if (order === 'name') return indices.sort((a, b) => COLORS[a].romaji.localeCompare(COLORS[b].romaji));
+  return indices;
+}
+
+export function renderCatalogue(ctx, state, width, height) {
+  const sorted = sortColourIndices(state.catalogueSort);
   const columns = width >= height ? 25 : 10;
   const rows = Math.ceil(COLORS.length / columns);
   const cellWidth = width / columns;
   const cellHeight = height / rows;
-  COLORS.forEach((colour, index) => {
+  sorted.forEach((colourIndex, index) => {
+    const colour = COLORS[colourIndex];
     const column = index % columns;
     const row = Math.floor(index / columns);
     ctx.fillStyle = colour.hex;
@@ -398,13 +557,59 @@ export function renderCatalogue(ctx, width, height) {
   }
 }
 
+function renderBands(ctx, state, width, height) {
+  const stops = getModeStops(state);
+  const diagonal = Math.hypot(width, height);
+  const scale = Math.max(2, state.bandScale);
+  const filled = scale * (1 - state.bandGap / 100);
+  const phase = state.bandOffset / 100 * scale * stops.length;
+  ctx.fillStyle = '#E7E3D8';
+  ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate((state.angle - 90) * Math.PI / 180);
+  const start = -diagonal - phase;
+  for (let position = start; position < diagonal + scale; position += scale) {
+    const sequence = Math.floor((position - start) / scale);
+    const stop = stops[((sequence % stops.length) + stops.length) % stops.length];
+    ctx.fillStyle = stop.hex ?? COLORS[stop.color].hex;
+    ctx.fillRect(position, -diagonal, filled, diagonal * 2);
+  }
+  ctx.restore();
+}
+
+function renderContrast(ctx, state, width, height) {
+  const [foreground, background] = getModeStops(state);
+  const fg = foreground.hex;
+  const bg = background.hex;
+  const ratio = contrastRatio(fg, bg);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width / 2, height);
+  ctx.fillStyle = fg;
+  ctx.fillRect(width / 2, 0, width / 2, height);
+  const padding = Math.max(22, width * 0.035);
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = fg;
+  ctx.font = `600 ${Math.max(20, width * 0.038)}px ui-monospace, monospace`;
+  ctx.fillText(`${ratio.toFixed(2)}:1`, padding, padding);
+  ctx.font = `500 ${Math.max(14, width * 0.018)}px ui-sans-serif, system-ui`;
+  ctx.fillText('NORMAL TEXT / Aa', padding, padding + Math.max(48, width * 0.065));
+  ctx.fillStyle = bg;
+  ctx.font = `600 ${Math.max(20, width * 0.038)}px ui-monospace, monospace`;
+  ctx.fillText('BOKASHI', width / 2 + padding, padding);
+  ctx.font = `500 ${Math.max(14, width * 0.018)}px ui-sans-serif, system-ui`;
+  ctx.fillText('LARGE TEXT / 色', width / 2 + padding, padding + Math.max(48, width * 0.065));
+}
+
 export function renderPreview(ctx, state, width, height, time = 0) {
   ctx.clearRect(0, 0, width, height);
   if (state.mode === 'dither') renderDither(ctx, state, width, height);
   else if (state.mode === 'air') renderAir(ctx, state, width, height);
   else if (state.mode === 'cube') renderCube(ctx, state, width, height, time);
   else if (state.mode === 'plane') return renderPlane(ctx, state, width, height);
-  else if (state.mode === 'catalogue') renderCatalogue(ctx, width, height);
+  else if (state.mode === 'catalogue') renderCatalogue(ctx, state, width, height);
+  else if (state.mode === 'bands') renderBands(ctx, state, width, height);
+  else if (state.mode === 'contrast') renderContrast(ctx, state, width, height);
   else {
     ctx.fillStyle = canvasGradient(ctx, state, width, height);
     ctx.fillRect(0, 0, width, height);

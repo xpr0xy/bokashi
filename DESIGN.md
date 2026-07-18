@@ -20,15 +20,33 @@ BOKASHI is a colour instrument, not a gallery homepage. The mutable artwork occu
 
 ## geometry
 - radius: 0 for rails, buttons, fields, preview. Circular stop and range handles only.
-- desktop shell: 11.5rem numbered mode rail, flexible artwork field, 19rem inspector.
-- the artwork and its specimen register are vertically composed as one folio plate. Browse ledgers remain separate layout siblings below it.
-- mobile: masthead, artwork, compact chromatic register, horizontal mode rail, controls, ledger. Export opens as a fixed contextual bottom sheet over a restrained scrim; it never scrolls the instrument out of view. No squeezed sidebars.
+- desktop shell: 11.5rem numbered mode rail, flexible artwork field, 19rem inspector. At widths above 1020px the app occupies one dynamic viewport; the document does not scroll.
+- the artwork and its specimen register are vertically composed as one folio plate inside a bounded centre stack. Recipe and colour ledgers share that stack and scroll internally beneath the artwork. Their headers remain visible while rows move.
+- mode rail, inspector controls, recipe ledger, and colour register each own their overflow. Wheel or trackpad input over one region must not move another region or the document.
+- tablet keeps the two-column artwork shell and allows the inspector to follow below; browse ledgers remain height-bounded and independently scrollable.
+- mobile: masthead, artwork, compact chromatic register, horizontal mode rail, controls, bounded ledger. Export opens as a fixed contextual bottom sheet over a restrained scrim; it never scrolls the instrument out of view. No squeezed sidebars.
 - rules and spacing create hierarchy. No cards, drop shadows, glass, decorative grid, fake washi texture, or Japanese cosplay.
 
 ## artwork
-The preview is the product. Minimum 58vh desktop and 42vh mobile. It supports linear, radial, conic, air, mono, dither, cube, image, and 3D-plane rendering. A small factual caption shows type, stops, angle, and dimensions.
+The preview is the product. It claims the remaining bounded centre-stack height instead of forcing document growth. It supports linear, radial, conic, air, mono, dither, cube, image-derived palettes, HSL/RGB colour-space projection, deterministic bands, catalogue harmonies, contrast proofing, and catalogue mosaic rendering. A small factual caption shows the renderer, active parameters, colours, and dimensions.
 
-The canvas is not a passive poster. Editable gradient modes expose a restrained stop rail over the artwork; radial and conic modes expose a draggable centre handle. A data-bearing specimen register below the artwork identifies the active mode and up to five rendered colours using real kanji, romaji, hex values, and output-derived colour bars. It is output metadata, not recoloured control chrome. Browse modes replace the register with their own bounded ledger context. Catalogue mode renders a direct-select colour mosaic instead of recycling the current gradient. Analysis modes preserve visible evidence of their source.
+The canvas is not a passive poster. Editable gradient and band modes expose restrained direct controls over the artwork; radial and conic modes expose a draggable centre handle. A data-bearing specimen register below the artwork identifies the active mode and up to five rendered colours using real kanji, romaji, hex values, and output-derived colour bars. It is output metadata, not recoloured control chrome. Browse modes replace the register with their own bounded ledger context. Catalogue mode renders a direct-select colour mosaic instead of recycling the current gradient. Analysis modes preserve visible evidence of their source.
+
+## instrument depth
+Every mode must own a distinct renderer or a distinct workflow that visibly changes the result. Controls that do not alter pixels, selection, ordering, or an honest export do not exist.
+
+- Make: geometry, direct stop editing, reverse, and even distribution.
+- Recipes: bounded ledger with family/type filters, deterministic selection, and handoff to Make.
+- Mono: catalogue base plus adjustable shadow and paper endpoints.
+- Air: diffusion, field spread, field strength, origin, and editable colours.
+- Dither: matrix family, cell scale, threshold bias, angle, and two endpoints.
+- Cube: colour sequence, speed, depth count, and direction.
+- Image: local source extraction with requested palette count, luminance ordering, text mapping, and audio mapping.
+- 3D plane: HSL and RGB projections, rotation, selection, keyboard traversal, and handoff to Make.
+- Colours: bounded searchable register, favourites, deterministic sort, direct copy, and handoff to Make.
+- Harmony: catalogue-quantised analogous, complementary, split, triad, and tetrad schemes from a chosen base.
+- Bands: deterministic repeat pattern using the active palette, angle, scale, gap, and offset.
+- Contrast: two-colour proof field with live WCAG ratio and normal/large-text verdicts.
 
 ## history and truthfulness
 - Bounded undo/redo is part of the instrument, with keyboard shortcuts and disabled states.
