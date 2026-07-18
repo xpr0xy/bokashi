@@ -1,21 +1,26 @@
 import './style.css';
 import { COLORS } from './colors.js';
 import {
-  DEFAULT_STATE, MODES, DITHER_PATTERNS, RECIPES, clamp, contrastText, cssForState,
-  extractPaletteFromImage, feelingPalette, getModeStops, normaliseState, renderPreview, rgbaToTiff,
-  stateToToken, tokenToState,
+  DEFAULT_STATE, MODES, DITHER_PATTERNS, HARMONY_SCHEMES, SORT_ORDERS, RECIPES, clamp, contrastRatio, contrastText, cssForState,
+  extractPaletteFromImage, feelingPalette, getModeStops, harmonyPalette, luminance, normaliseState, renderPreview, rgbaToTiff,
+  sortColourIndices, stateToToken, tokenToState,
 } from './core.js';
 
 const MODE_LABELS = {
   make: 'Make', traditional: 'Recipes', mono: 'Mono', air: 'Air', dither: 'Dither',
   cube: 'Cube', image: 'Image', plane: '3D plane', catalogue: 'Colours',
+  harmony: 'Harmony', bands: 'Bands', contrast: 'Contrast',
 };
 const MODE_NOTES = {
   make: 'construct', traditional: 'curated', mono: 'tonal', air: 'diffuse', dither: 'matrix',
   cube: 'sequence', image: 'sample', plane: 'spatial', catalogue: 'register',
+  harmony: 'relate', bands: 'repeat', contrast: 'prove',
 };
 const STATE_LIMITS = {
   angle: [0, 360], centerX: [0, 100], centerY: [0, 100], blur: [0, 180], cubeSpeed: [0.1, 1.5],
+  cubeCount: [4, 24], monoDark: [10, 90], monoLight: [5, 90], airSpread: [20, 100], airStrength: [10, 100],
+  ditherScale: [1, 12], ditherBias: [-45, 45], imagePaletteCount: [2, 5], harmonySpread: [10, 90],
+  bandScale: [4, 96], bandGap: [0, 80], bandOffset: [0, 100],
 };
 
 const app = document.querySelector('#app');
@@ -40,6 +45,9 @@ let analysisStatus = { image: '', audio: '' };
 let undoStack = [structuredClone(state)];
 let redoStack = [];
 let specimenSignature = '';
+let recipeFilters = { family: 'all', type: 'all' };
+let colourQuery = '';
+let favouriteOnly = false;
 
 app.innerHTML = `
   <header class="masthead">
@@ -47,7 +55,7 @@ app.innerHTML = `
       <p class="eyebrow">ぼかし / colour instrument</p>
       <h1>BOKASHI</h1>
     </div>
-    <p class="masthead-note"><span>250 source colours</span><span>120 deterministic recipes</span><span>local canvas / six export paths</span></p>
+    <p class="masthead-note"><span>250 source colours</span><span>120 deterministic recipes</span><span>12 local instruments / six exports</span></p>
     <div class="masthead-actions">
       <div class="history-actions" role="group" aria-label="History">
         <button class="quiet-button icon-button" id="undo" type="button" aria-label="Undo" title="Undo (⌘Z)" disabled>↶</button>
@@ -64,7 +72,8 @@ app.innerHTML = `
       ${MODES.map((mode, index) => `<button type="button" data-mode="${mode}"><span class="mode-number">${String(index + 1).padStart(2, '0')}</span><span class="mode-name">${MODE_LABELS[mode]}<small>${MODE_NOTES[mode]}</small></span></button>`).join('')}
       <span class="mode-more" aria-hidden="true">→</span>
     </nav>
-    <section class="stage-column" aria-label="Gradient output">
+    <div class="canvas-stack">
+      <section class="stage-column" aria-label="Gradient output">
       <div class="preview-stage" id="preview-stage">
         <canvas id="preview" aria-label="Current gradient preview" aria-describedby="preview-summary"></canvas>
         <p class="sr-only" id="preview-summary" role="status" aria-live="polite"></p>
@@ -80,8 +89,9 @@ app.innerHTML = `
       </div>
       <div class="specimen-register" id="specimen-register" aria-hidden="true"></div>
       <p class="sr-only" id="ledger-status" role="status" aria-live="polite" aria-atomic="true"></p>
-    </section>
-    <section class="ledger" id="ledger"></section>
+      </section>
+      <section class="ledger" id="ledger"></section>
+    </div>
     <aside class="inspector" aria-label="Gradient controls">
       <div class="inspector-head">
         <p>CONTROL</p>
@@ -110,7 +120,7 @@ app.innerHTML = `
     </aside>
   </main>
   <footer class="site-footer">
-    <p>250 colours · 120 recipes · 9 instruments · 6 export formats</p>
+    <p>250 colours · 120 recipes · 12 instruments · 6 export formats</p>
     <p>Colour data adapted from <a href="https://github.com/xiaohk/nippon-colors" target="_blank" rel="noreferrer">xiaohk/nippon-colors</a> under MIT. Reference, not historical scholarship.</p>
   </footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -220,6 +230,7 @@ function makerControls(extra = '') {
   return `${commonGeometry()}
     <div class="control-group">
       <div class="section-heading"><h2>Stops</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div>
+      <div class="button-pair"><button type="button" data-reverse-stops>Reverse</button><button type="button" data-distribute-stops>Distribute</button></div>
       <div class="stop-list">${stopRows()}</div>
     </div>${extra}`;
 }
@@ -227,7 +238,7 @@ function makerControls(extra = '') {
 function focusSelectorForControl(element) {
   if (!element || !controls.contains(element)) return null;
   if (element.id) return `#${CSS.escape(element.id)}`;
-  const attribute = ['data-state', 'data-gradient-type', 'data-stop-position', 'data-open-colour', 'data-remove-stop', 'data-recipe-step', 'data-add-stop'].find((name) => element.hasAttribute(name));
+  const attribute = ['data-state', 'data-gradient-type', 'data-stop-position', 'data-open-colour', 'data-remove-stop', 'data-recipe-step', 'data-add-stop', 'data-reverse-stops', 'data-distribute-stops', 'data-cube-direction', 'data-plane-space', 'data-open-mono', 'data-open-harmony', 'data-swap-contrast'].find((name) => element.hasAttribute(name));
   return attribute ? `[${attribute}="${CSS.escape(element.getAttribute(attribute))}"]` : null;
 }
 
@@ -236,35 +247,78 @@ function renderControls() {
   if (state.mode === 'make') controls.innerHTML = makerControls();
   else if (state.mode === 'traditional') {
     const recipe = RECIPES[state.recipe];
+    const families = [...new Set(RECIPES.map((item) => item.family))];
     controls.innerHTML = `<div class="control-group recipe-control">
       <p class="specimen-number">${recipe.id}</p>
       <h2>${recipe.family}</h2>
       <p>${recipe.type} / ${recipe.stops.length} colours / ${recipe.angle}°</p>
       <div class="button-pair"><button type="button" data-recipe-step="-1">Previous</button><button type="button" data-recipe-step="1">Next</button></div>
       <button type="button" data-use-recipe>Open in maker</button>
+    </div><div class="control-group"><div class="section-heading"><h2>Ledger filter</h2><span>LOCAL</span></div>
+      <label>Family<select id="recipe-family"><option value="all">All families</option>${families.map((family) => `<option value="${family}" ${recipeFilters.family === family ? 'selected' : ''}>${family}</option>`).join('')}</select></label>
+      <label>Geometry<select id="recipe-type"><option value="all">All types</option>${['linear', 'radial', 'conic'].map((type) => `<option value="${type}" ${recipeFilters.type === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
     </div>`;
   } else if (state.mode === 'mono') {
     const colour = COLORS[state.monoBase];
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Monochrome</h2><span>${colour.kanji}</span></div>
       <button class="colour-hero" data-open-mono type="button" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}"><strong>${colour.romaji}</strong><code>${colour.hex}</code></button>
-      ${commonGeometry()}</div>`;
+      <label>Shadow depth <output>${state.monoDark}%</output><input type="range" min="10" max="90" value="${state.monoDark}" data-state="monoDark"></label>
+      <label>Paper lift <output>${state.monoLight}%</output><input type="range" min="5" max="90" value="${state.monoLight}" data-state="monoLight"></label></div>${commonGeometry()}`;
   } else if (state.mode === 'air') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Atmosphere</h2><span>${state.blur}px</span></div><label>Diffusion<input type="range" min="0" max="180" value="${state.blur}" data-state="blur"></label><div class="field-pair"><label>Origin X<input type="number" min="0" max="100" value="${Math.round(state.centerX)}" data-state="centerX"></label><label>Origin Y<input type="number" min="0" max="100" value="${Math.round(state.centerY)}" data-state="centerY"></label></div></div><div class="control-group"><div class="section-heading"><h2>Colour fields</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>`;
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Atmosphere</h2><span>${state.blur}px</span></div>
+      <label>Diffusion <output>${state.blur}px</output><input type="range" min="0" max="180" value="${state.blur}" data-state="blur"></label>
+      <label>Field spread <output>${state.airSpread}%</output><input type="range" min="20" max="100" value="${state.airSpread}" data-state="airSpread"></label>
+      <label>Field strength <output>${state.airStrength}%</output><input type="range" min="10" max="100" value="${state.airStrength}" data-state="airStrength"></label>
+      <div class="field-pair"><label>Origin X<input type="number" min="0" max="100" value="${Math.round(state.centerX)}" data-state="centerX"></label><label>Origin Y<input type="number" min="0" max="100" value="${Math.round(state.centerY)}" data-state="centerY"></label></div></div>
+      <div class="control-group"><div class="section-heading"><h2>Colour fields</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>`;
   } else if (state.mode === 'dither') {
     const endpointIndices = state.stops.length > 1 ? [0, state.stops.length - 1] : [0];
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Direction</h2><span>${state.angle}°</span></div><label>Angle <output>${state.angle}°</output><input type="range" min="0" max="360" value="${state.angle}" data-state="angle"></label></div><div class="control-group"><div class="section-heading"><h2>Two-colour matrix</h2><span>${state.pattern}</span></div><p class="microcopy">The matrix uses two ink endpoints across the selected direction.</p><div class="stop-list">${stopRows(endpointIndices, { positions: false })}</div><label>Pattern<select data-state="pattern">${DITHER_PATTERNS.map((pattern) => `<option ${pattern === state.pattern ? 'selected' : ''}>${pattern}</option>`).join('')}</select></label></div>`;
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Direction</h2><span>${state.angle}°</span></div><label>Angle <output>${state.angle}°</output><input type="range" min="0" max="360" value="${state.angle}" data-state="angle"></label></div>
+      <div class="control-group"><div class="section-heading"><h2>Two-colour matrix</h2><span>${state.pattern}</span></div><p class="microcopy">The matrix uses two ink endpoints across the selected direction.</p><div class="stop-list">${stopRows(endpointIndices, { positions: false })}</div>
+      <label>Pattern<select data-state="pattern">${DITHER_PATTERNS.map((pattern) => `<option ${pattern === state.pattern ? 'selected' : ''}>${pattern}</option>`).join('')}</select></label>
+      <label>Cell scale <output>${state.ditherScale}×</output><input type="range" min="1" max="12" value="${state.ditherScale}" data-state="ditherScale"></label>
+      <label>Threshold bias <output>${state.ditherBias}</output><input type="range" min="-45" max="45" value="${state.ditherBias}" data-state="ditherBias"></label></div>`;
   } else if (state.mode === 'cube') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Sequence colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div><div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div><label>Speed<input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label></div>`;
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Sequence colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>
+      <div class="control-group"><div class="section-heading"><h2>Sequence</h2><span>${state.cubeSpeed.toFixed(2)}×</span></div>
+      <label>Speed <output>${state.cubeSpeed.toFixed(2)}×</output><input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label>
+      <label>Depth <output>${state.cubeCount}</output><input type="range" min="4" max="24" value="${state.cubeCount}" data-state="cubeCount"></label>
+      <div class="segmented" role="group" aria-label="Sequence direction"><button type="button" data-cube-direction="1" class="${state.cubeDirection === 1 ? 'is-active' : ''}">Outward</button><button type="button" data-cube-direction="-1" class="${state.cubeDirection === -1 ? 'is-active' : ''}">Inward</button></div></div>`;
   } else if (state.mode === 'image') {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div><label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || 'Extract up to five dominant colours and match them to the catalogue.'}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div>
+      <div class="field-pair"><label>Colours<select data-state="imagePaletteCount">${[2, 3, 4, 5].map((count) => `<option value="${count}" ${count === state.imagePaletteCount ? 'selected' : ''}>${count}</option>`).join('')}</select></label><label>Order<select data-state="imageSort"><option value="dominance" ${state.imageSort === 'dominance' ? 'selected' : ''}>dominance</option><option value="luminance" ${state.imageSort === 'luminance' ? 'selected' : ''}>luminance</option></select></label></div>
+      <label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || `Extract ${state.imagePaletteCount} dominant colours and match them to the catalogue.`}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>
       <div class="control-group"><div class="section-heading"><h2>Feeling</h2><span>TEXT → COLOUR</span></div><label>Describe a feeling<textarea id="feeling-input" rows="3" placeholder="cold rain over dark cedar"></textarea></label><button type="button" id="generate-feeling">Generate palette</button><p class="microcopy" id="feeling-status" role="status" aria-live="polite"></p></div>
       <div class="control-group"><div class="section-heading"><h2>Audio tone</h2><span>WAVEFORM</span></div><label class="drop-zone" data-drop-kind="audio">Drop or choose audio<input id="audio-input" type="file" accept="audio/*"></label><p class="microcopy" id="audio-status" role="status" aria-live="polite">${analysisStatus.audio || 'Maps amplitude, density and transient shape to colour indices.'}</p></div>
       ${makerControls()}`;
   } else if (state.mode === 'plane') {
     const selected = state.planeSelected == null ? null : COLORS[state.planeSelected];
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Colour plane</h2><span>H / S / L</span></div><p>Drag the field to rotate. Use arrow keys when the field is focused. Select a point to inspect it.</p>${selected ? `<button class="colour-hero" type="button" data-plane-use style="--swatch:${selected.hex};--swatch-text:${contrastText(selected.hex)}"><span>${selected.kanji}</span><strong>${selected.romaji}</strong><code>${selected.hex}</code><small>Use in maker</small></button>` : '<p class="plane-empty">No point selected.</p>'}</div>`;
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Colour plane</h2><span>${state.planeSpace.toUpperCase()}</span></div>
+      <div class="segmented" role="group" aria-label="Colour space"><button type="button" data-plane-space="hsl" class="${state.planeSpace === 'hsl' ? 'is-active' : ''}">HSL</button><button type="button" data-plane-space="rgb" class="${state.planeSpace === 'rgb' ? 'is-active' : ''}">RGB</button></div>
+      <p>Drag the field to rotate. Use arrow keys when the field is focused. Select a point to inspect it.</p>${selected ? `<button class="colour-hero" type="button" data-plane-use style="--swatch:${selected.hex};--swatch-text:${contrastText(selected.hex)}"><span>${selected.kanji}</span><strong>${selected.romaji}</strong><code>${selected.hex}</code><small>Use in maker</small></button>` : '<p class="plane-empty">No point selected.</p>'}</div>`;
+  } else if (state.mode === 'catalogue') {
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Catalogue</h2><span>${COLORS.length}</span></div><label>Search<input id="colour-search" type="search" value="${colourQuery}" placeholder="kanji, romaji or #hex" autocomplete="off"></label>
+      <label>Sort<select data-state="catalogueSort">${SORT_ORDERS.map((order) => `<option value="${order}" ${state.catalogueSort === order ? 'selected' : ''}>${order}</option>`).join('')}</select></label>
+      <label class="check-row"><input id="favourites-only" type="checkbox" ${favouriteOnly ? 'checked' : ''}> Favourites only</label></div>`;
+  } else if (state.mode === 'harmony') {
+    const colour = COLORS[state.monoBase];
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Harmony</h2><span>${colour.kanji}</span></div>
+      <button class="colour-hero" data-open-harmony type="button" style="--swatch:${colour.hex};--swatch-text:${contrastText(colour.hex)}"><strong>${colour.romaji}</strong><code>${colour.hex}</code></button>
+      <label>Scheme<select data-state="harmonyScheme">${HARMONY_SCHEMES.map((scheme) => `<option value="${scheme}" ${state.harmonyScheme === scheme ? 'selected' : ''}>${scheme}</option>`).join('')}</select></label>
+      <label>Hue spread <output>${state.harmonySpread}°</output><input type="range" min="10" max="90" value="${state.harmonySpread}" data-state="harmonySpread"></label></div>${commonGeometry()}`;
+  } else if (state.mode === 'bands') {
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Repeat field</h2><span>${state.angle}°</span></div>
+      <label>Angle <output>${state.angle}°</output><input type="range" min="0" max="360" value="${state.angle}" data-state="angle"></label>
+      <label>Band scale <output>${state.bandScale}px</output><input type="range" min="4" max="96" value="${state.bandScale}" data-state="bandScale"></label>
+      <label>Paper gap <output>${state.bandGap}%</output><input type="range" min="0" max="80" value="${state.bandGap}" data-state="bandGap"></label>
+      <label>Phase <output>${state.bandOffset}%</output><input type="range" min="0" max="100" value="${state.bandOffset}" data-state="bandOffset"></label></div>
+      <div class="control-group"><div class="section-heading"><h2>Band colours</h2><button type="button" data-add-stop ${state.stops.length >= 5 ? 'disabled' : ''}>+ add</button></div><div class="button-pair"><button type="button" data-reverse-stops>Reverse</button><button type="button" data-distribute-stops>Distribute</button></div><div class="stop-list">${stopRows(undefined, { positions: false })}</div></div>`;
   } else {
-    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Catalogue</h2><span>${COLORS.length}</span></div><label>Search<input id="colour-search" type="search" placeholder="kanji, romaji or #hex" autocomplete="off"></label><label class="check-row"><input id="favourites-only" type="checkbox"> Favourites only</label></div>`;
+    const [foreground, background] = [state.stops[0], state.stops.at(-1)].map((stop) => COLORS[stop.color]);
+    const ratio = contrastRatio(foreground.hex, background.hex);
+    controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Contrast proof</h2><span>${ratio.toFixed(2)}:1</span></div>
+      <div class="contrast-verdict"><strong>${ratio >= 7 ? 'AAA' : ratio >= 4.5 ? 'AA' : ratio >= 3 ? 'LARGE ONLY' : 'FAIL'}</strong><span>normal ${ratio >= 4.5 ? 'pass' : 'fail'} · large ${ratio >= 3 ? 'pass' : 'fail'}</span></div>
+      <div class="stop-list">${stopRows([0, state.stops.length - 1], { positions: false })}</div><button type="button" data-swap-contrast>Swap foreground / background</button></div>`;
   }
   bindControlInputs();
   if (focusSelector) requestAnimationFrame(() => (controls.querySelector(focusSelector) || controls.querySelector('[data-add-stop]'))?.focus());
@@ -273,24 +327,28 @@ function renderControls() {
 function renderLedger(filter = '') {
   if (state.mode === 'traditional') {
     ledger.hidden = false;
-    ledger.innerHTML = `<div class="ledger-head"><h2>Recipe ledger</h2><p>120 deterministic combinations. Open any recipe, then edit it freely.</p></div><div class="recipe-ledger">${RECIPES.map((recipe, index) => {
+    const matches = RECIPES.map((recipe, index) => ({ recipe, index })).filter(({ recipe }) => (
+      (recipeFilters.family === 'all' || recipe.family === recipeFilters.family)
+      && (recipeFilters.type === 'all' || recipe.type === recipeFilters.type)
+    ));
+    ledger.innerHTML = `<div class="ledger-head"><h2>Recipe ledger</h2><p>${matches.length} of ${RECIPES.length} shown. Open any recipe, then edit it freely.</p></div><div class="recipe-ledger" tabindex="0" aria-label="Scrollable recipe ledger">${matches.map(({ recipe, index }) => {
       const css = recipe.type === 'linear'
         ? `linear-gradient(${recipe.angle}deg, ${recipe.stops.map((stop) => `${COLORS[stop.color].hex} ${stop.position}%`).join(',')})`
         : recipe.type === 'radial'
           ? `radial-gradient(circle, ${recipe.stops.map((stop) => `${COLORS[stop.color].hex} ${stop.position}%`).join(',')})`
           : `conic-gradient(from ${recipe.angle}deg, ${recipe.stops.map((stop) => `${COLORS[stop.color].hex} ${stop.position}%`).join(',')})`;
       return `<button type="button" data-recipe="${index}" class="${index === state.recipe ? 'is-selected' : ''}"><span>${recipe.id}</span><i style="background:${css}"></i><strong>${recipe.family}</strong><small>${recipe.type}</small></button>`;
-    }).join('')}</div>`;
-    document.querySelector('#ledger-status').textContent = `Recipe ${state.recipe + 1} of ${RECIPES.length} selected.`;
+    }).join('') || '<p class="ledger-empty">No recipes match these filters.</p>'}</div>`;
+    document.querySelector('#ledger-status').textContent = `${matches.length} recipes shown. Recipe ${state.recipe + 1} selected.`;
   } else if (state.mode === 'catalogue') {
     ledger.hidden = false;
-    const query = filter.trim().toLowerCase();
-    const favouriteOnly = document.querySelector('#favourites-only')?.checked;
-    const matches = COLORS.map((colour, index) => ({ colour, index })).filter(({ colour, index }) => {
+    const query = colourQuery.trim().toLowerCase();
+    const orderedIndices = sortColourIndices(state.catalogueSort);
+    const matches = orderedIndices.map((index) => ({ colour: COLORS[index], index })).filter(({ colour, index }) => {
       if (favouriteOnly && !favourites.has(index)) return false;
       return !query || `${colour.romaji} ${colour.kanji} ${colour.hex}`.toLowerCase().includes(query);
     });
-    ledger.innerHTML = `<div class="ledger-head"><h2>Colour register</h2><p>${matches.length} of ${COLORS.length} shown. Select a row to load the colour into the maker.</p></div><div class="colour-ledger">${matches.map(({ colour, index }) => `<div class="colour-row"><button type="button" data-colour="${index}"><i style="--swatch:${colour.hex}"></i><span>${colour.kanji}</span><strong>${colour.romaji}</strong><code>${colour.hex}</code></button><button type="button" data-favourite="${index}" aria-label="${favourites.has(index) ? 'Remove' : 'Add'} ${colour.romaji} ${favourites.has(index) ? 'from' : 'to'} favourites">${favourites.has(index) ? '★' : '☆'}</button></div>`).join('')}</div>`;
+    ledger.innerHTML = `<div class="ledger-head"><h2>Colour register</h2><p>${matches.length} of ${COLORS.length} shown. Open a colour in Make or copy its hex value.</p></div><div class="colour-ledger" tabindex="0" aria-label="Scrollable colour register">${matches.map(({ colour, index }) => `<div class="colour-row"><button type="button" data-colour="${index}"><i style="--swatch:${colour.hex}"></i><span>${colour.kanji}</span><strong>${colour.romaji}</strong><code>${colour.hex}</code></button><button type="button" data-copy-colour="${index}" aria-label="Copy ${colour.romaji} ${colour.hex}">⌘</button><button type="button" data-favourite="${index}" aria-label="${favourites.has(index) ? 'Remove' : 'Add'} ${colour.romaji} ${favourites.has(index) ? 'from' : 'to'} favourites">${favourites.has(index) ? '★' : '☆'}</button></div>`).join('') || '<p class="ledger-empty">No colours match these filters.</p>'}</div>`;
     document.querySelector('#ledger-status').textContent = `${matches.length} colours found.`;
   } else {
     ledger.hidden = true;
@@ -332,8 +390,11 @@ function renderCaption() {
     dither: state.pattern,
     cube: 'SEQUENCE',
     image: sampledImage ? 'SAMPLED SOURCE' : 'SOURCE → PALETTE',
-    plane: 'HSL SPACE',
-    catalogue: '250-SWATCH MOSAIC',
+    plane: `${state.planeSpace.toUpperCase()} SPACE`,
+    catalogue: `${state.catalogueSort.toUpperCase()} MOSAIC`,
+    harmony: `${state.harmonyScheme.toUpperCase()} HARMONY`,
+    bands: 'REPEAT FIELD',
+    contrast: `${contrastRatio(COLORS[state.stops[0].color].hex, COLORS[state.stops.at(-1).color].hex).toFixed(2)}:1`,
   }[state.mode] || state.gradientType;
   renderSpecimenRegister(detail.toUpperCase());
   document.querySelector('#caption-mode').textContent = `${MODE_LABELS[state.mode].toUpperCase()} / ${detail.toUpperCase()}`;
@@ -343,15 +404,17 @@ function renderCaption() {
       ? `${favourites.size} SAVED`
       : state.mode === 'dither'
         ? '2 ENDPOINTS'
-        : `${state.mode === 'traditional' ? recipe.stops.length : state.stops.length} STOPS`;
+        : `${getModeStops(state).length} ${state.mode === 'contrast' ? 'COLOURS' : 'STOPS'}`;
   document.querySelector('#caption-stops').textContent = stopText;
   document.querySelector('#caption-size').textContent = `${canvas.width} × ${canvas.height}`;
   previewStage.dataset.mode = state.mode;
   previewStage.closest('.stage-column').classList.toggle('is-browse', ['traditional', 'catalogue'].includes(state.mode));
-  document.querySelector('#plane-legend').hidden = state.mode !== 'plane';
+  const planeLegend = document.querySelector('#plane-legend');
+  planeLegend.hidden = state.mode !== 'plane';
+  planeLegend.querySelector('span:last-child').textContent = state.planeSpace === 'hsl' ? 'HUE / SATURATION / LIGHTNESS' : 'RED / GREEN / BLUE';
   previewStage.tabIndex = state.mode === 'plane' ? 0 : -1;
   previewStage.setAttribute('aria-label', state.mode === 'plane'
-    ? 'Interactive HSL colour plane. Arrow keys rotate, Enter selects the nearest central point, and N or P cycles colours.'
+    ? `Interactive ${state.planeSpace.toUpperCase()} colour plane. Arrow keys rotate, Enter selects the nearest central point, and N or P cycles colours.`
     : state.mode === 'catalogue'
       ? 'Interactive catalogue mosaic. Select any cell to open that colour in the maker.'
       : `Current ${MODE_LABELS[state.mode]} preview`);
@@ -363,16 +426,24 @@ function renderCaption() {
         ? [state.stops[0], state.stops.at(-1)].map((stop) => COLORS[stop.color].hex).join(', ')
         : getModeStops(state).map((stop) => stop.hex ?? COLORS[stop.color].hex).join(', ');
   const parameters = state.mode === 'plane'
-    ? `rotation ${state.planeRotation.x.toFixed(2)} by ${state.planeRotation.y.toFixed(2)}${state.planeSelected == null ? ', no colour selected' : `, ${COLORS[state.planeSelected].romaji} selected`}`
+    ? `${state.planeSpace.toUpperCase()} rotation ${state.planeRotation.x.toFixed(2)} by ${state.planeRotation.y.toFixed(2)}${state.planeSelected == null ? ', no colour selected' : `, ${COLORS[state.planeSelected].romaji} selected`}`
     : state.mode === 'catalogue'
-      ? `${COLORS.length} colour mosaic, ${favourites.size} favourites`
+      ? `${COLORS.length} colour mosaic sorted by ${state.catalogueSort}, ${favourites.size} favourites`
       : state.mode === 'air'
-        ? `diffusion ${state.blur} pixels, origin ${Math.round(state.centerX)} by ${Math.round(state.centerY)} percent`
+        ? `diffusion ${state.blur} pixels, spread ${state.airSpread} percent, strength ${state.airStrength} percent, origin ${Math.round(state.centerX)} by ${Math.round(state.centerY)} percent`
         : state.mode === 'dither'
-          ? `${state.pattern} pattern at ${state.angle} degrees`
+          ? `${state.pattern} pattern at ${state.angle} degrees, cell scale ${state.ditherScale}, bias ${state.ditherBias}`
           : state.mode === 'cube'
-            ? `sequence speed ${state.cubeSpeed.toFixed(2)} times`
-            : `${detail}, ${state.mode === 'traditional' ? recipe.angle : state.angle} degrees`;
+            ? `${state.cubeCount} layers moving ${state.cubeDirection === 1 ? 'outward' : 'inward'} at ${state.cubeSpeed.toFixed(2)} times`
+            : state.mode === 'harmony'
+              ? `${state.harmonyScheme} from ${COLORS[state.monoBase].romaji}, spread ${state.harmonySpread} degrees`
+              : state.mode === 'bands'
+                ? `${state.bandScale} pixel scale, ${state.bandGap} percent gap, ${state.bandOffset} percent phase at ${state.angle} degrees`
+                : state.mode === 'contrast'
+                  ? `contrast ratio ${detail}`
+                  : state.mode === 'mono'
+                    ? `shadow ${state.monoDark} percent, paper lift ${state.monoLight} percent, ${state.angle} degrees`
+                    : `${detail}, ${state.mode === 'traditional' ? recipe.angle : state.angle} degrees`;
   const summary = `${MODE_LABELS[state.mode]} output. ${parameters}. Colours: ${effectiveColours}.`;
   const summaryNode = document.querySelector('#preview-summary');
   if (summaryNode.textContent !== summary) summaryNode.textContent = summary;
@@ -477,18 +548,22 @@ function bindControlInputs() {
   controls.querySelectorAll('[data-state]').forEach((input) => {
     input.addEventListener('input', () => {
       const field = input.dataset.state;
-      if (input.type === 'range' || input.type === 'number') {
+      if (STATE_LIMITS[field]) {
         const value = Number(input.value);
         if (!Number.isFinite(value)) return;
-        const limits = STATE_LIMITS[field] || [-Infinity, Infinity];
+        const limits = STATE_LIMITS[field];
         state[field] = clamp(value, limits[0], limits[1]);
         input.value = String(state[field]);
       } else state[field] = input.value;
       persist();
       renderCanvas();
       renderStageDirectControls();
+      if (field === 'catalogueSort') renderLedger();
       const output = input.closest('label')?.querySelector('output');
-      if (output) output.textContent = `${input.value}°`;
+      if (output) {
+        const unit = { angle: '°', harmonySpread: '°', blur: 'px', bandScale: 'px', airSpread: '%', airStrength: '%', monoDark: '%', monoLight: '%', bandGap: '%', bandOffset: '%', cubeSpeed: '×', ditherScale: '×' }[field] || '';
+        output.textContent = `${input.value}${unit}`;
+      }
     });
     input.addEventListener('change', () => { recordHistory(); renderControls(); });
   });
@@ -530,8 +605,22 @@ function bindControlInputs() {
     applyPalette(indices);
     showToast('Feeling mapped to colour');
   });
-  controls.querySelector('#colour-search')?.addEventListener('input', (event) => renderLedger(event.target.value));
-  controls.querySelector('#favourites-only')?.addEventListener('change', () => renderLedger(controls.querySelector('#colour-search').value));
+  controls.querySelector('#colour-search')?.addEventListener('input', (event) => {
+    colourQuery = event.target.value;
+    renderLedger();
+  });
+  controls.querySelector('#favourites-only')?.addEventListener('change', (event) => {
+    favouriteOnly = event.target.checked;
+    renderLedger();
+  });
+  controls.querySelector('#recipe-family')?.addEventListener('change', (event) => {
+    recipeFilters.family = event.target.value;
+    renderLedger();
+  });
+  controls.querySelector('#recipe-type')?.addEventListener('change', (event) => {
+    recipeFilters.type = event.target.value;
+    renderLedger();
+  });
 }
 
 function applyPalette(indices) {
@@ -582,7 +671,8 @@ async function handleImage(event) {
     sample.height = Math.max(1, Math.round(height * ratio));
     const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
     sampleCtx.drawImage(bitmap, 0, 0, sample.width, sample.height);
-    const indices = extractPaletteFromImage(sampleCtx.getImageData(0, 0, sample.width, sample.height));
+    let indices = extractPaletteFromImage(sampleCtx.getImageData(0, 0, sample.width, sample.height), state.imagePaletteCount);
+    if (state.imageSort === 'luminance') indices = indices.sort((a, b) => luminance(COLORS[a].hex) - luminance(COLORS[b].hex));
     if (indices.length < 2) throw new Error('not enough opaque colour data');
     if (sampledImage?.url) URL.revokeObjectURL(sampledImage.url);
     sampledImage = { url: URL.createObjectURL(file), name: file.name, width, height };
@@ -651,6 +741,23 @@ controls.addEventListener('click', (event) => {
     colourPicker(`Stop ${stopIndex + 1}`, (colour) => { state.stops[stopIndex].color = colour; commit(); });
   }
   if (target.hasAttribute('data-open-mono')) colourPicker('Monochrome base', (colour) => { state.monoBase = colour; commit(); });
+  if (target.hasAttribute('data-open-harmony')) colourPicker('Harmony base', (colour) => { state.monoBase = colour; commit(); });
+  if (target.hasAttribute('data-reverse-stops')) {
+    state.stops = state.stops.map((stop) => ({ ...stop, position: 100 - stop.position })).reverse();
+    commit();
+  }
+  if (target.hasAttribute('data-distribute-stops')) {
+    state.stops = state.stops.map((stop, index) => ({ ...stop, position: Math.round(index / Math.max(1, state.stops.length - 1) * 100) }));
+    commit();
+  }
+  if (target.dataset.cubeDirection) { state.cubeDirection = Number(target.dataset.cubeDirection); commit(); }
+  if (target.dataset.planeSpace) { state.planeSpace = target.dataset.planeSpace; state.planeSelected = null; commit(); }
+  if (target.hasAttribute('data-swap-contrast')) {
+    const first = state.stops[0].color;
+    state.stops[0].color = state.stops.at(-1).color;
+    state.stops.at(-1).color = first;
+    commit();
+  }
   if (target.dataset.recipeStep) { state.recipe = (state.recipe + Number(target.dataset.recipeStep) + RECIPES.length) % RECIPES.length; commit(); }
   if (target.hasAttribute('data-use-recipe')) {
     const recipe = RECIPES[state.recipe];
@@ -675,26 +782,53 @@ window.addEventListener('resize', updateModeContinuation);
 
 ledger.addEventListener('click', (event) => {
   const recipeButton = event.target.closest('[data-recipe]');
-  if (recipeButton) { state.recipe = Number(recipeButton.dataset.recipe); commit(); previewStage.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); return; }
+  if (recipeButton) { state.recipe = Number(recipeButton.dataset.recipe); commit(); return; }
   const colourButton = event.target.closest('[data-colour]');
-  if (colourButton) { state.stops[1].color = Number(colourButton.dataset.colour); state.mode = 'make'; commit(); previewStage.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' }); return; }
+  if (colourButton) { state.stops[1].color = Number(colourButton.dataset.colour); state.mode = 'make'; commit(); return; }
+  const copyButton = event.target.closest('[data-copy-colour]');
+  if (copyButton) {
+    const colour = COLORS[Number(copyButton.dataset.copyColour)];
+    navigator.clipboard.writeText(colour.hex).then(() => showToast(`${colour.hex} copied`)).catch(() => showToast('Copy blocked'));
+    return;
+  }
   const favouriteButton = event.target.closest('[data-favourite]');
   if (favouriteButton) {
     const index = Number(favouriteButton.dataset.favourite);
     if (favourites.has(index)) favourites.delete(index); else favourites.add(index);
-    persist(); renderLedger(controls.querySelector('#colour-search')?.value || '');
+    persist(); renderLedger();
   }
 });
 
 function mutate() {
   const seed = (Date.now() >>> 5) % RECIPES.length;
   if (state.mode === 'catalogue') return;
-  if (state.mode === 'traditional') state.recipe = (state.recipe + (seed % (RECIPES.length - 1)) + 1) % RECIPES.length;
-  else if (state.mode === 'mono') state.monoBase = (state.monoBase + seed + 17) % COLORS.length;
-  else if (state.mode === 'plane') {
+  if (state.mode === 'traditional') {
+    const matches = RECIPES.map((recipe, index) => ({ recipe, index })).filter(({ recipe }) => (
+      (recipeFilters.family === 'all' || recipe.family === recipeFilters.family)
+      && (recipeFilters.type === 'all' || recipe.type === recipeFilters.type)
+    ));
+    if (matches.length) state.recipe = matches[(seed + state.recipe) % matches.length].index;
+  } else if (state.mode === 'mono') {
+    state.monoBase = (state.monoBase + seed + 17) % COLORS.length;
+    state.monoDark = 35 + seed % 45;
+    state.monoLight = 35 + (seed * 3) % 50;
+  } else if (state.mode === 'plane') {
     state.planeRotation.x = clamp(state.planeRotation.x + ((seed % 9) - 4) * 0.11, -1.4, 1.4);
     state.planeRotation.y += 0.37 + (seed % 7) * 0.09;
     state.planeSelected = null;
+  } else if (state.mode === 'harmony') {
+    state.monoBase = (state.monoBase + seed * 7 + 29) % COLORS.length;
+    state.harmonyScheme = HARMONY_SCHEMES[(HARMONY_SCHEMES.indexOf(state.harmonyScheme) + 1 + seed) % HARMONY_SCHEMES.length];
+    state.harmonySpread = 18 + seed % 65;
+  } else if (state.mode === 'contrast') {
+    const baseIndex = (seed * 17 + state.stops[0].color) % COLORS.length;
+    const base = COLORS[baseIndex];
+    const opposite = COLORS.reduce((best, colour, index) => {
+      const ratio = contrastRatio(base.hex, colour.hex);
+      return ratio > best.ratio ? { index, ratio } : best;
+    }, { index: 0, ratio: 0 });
+    state.stops[0].color = baseIndex;
+    state.stops.at(-1).color = opposite.index;
   } else {
     const recipe = RECIPES[(seed + state.angle) % RECIPES.length];
     state.stops = structuredClone(recipe.stops);
@@ -702,6 +836,24 @@ function mutate() {
     state.centerX = recipe.centerX;
     state.centerY = recipe.centerY;
     if (state.mode === 'make' || state.mode === 'image') state.gradientType = recipe.type;
+    if (state.mode === 'air') {
+      state.airSpread = 40 + seed % 55;
+      state.airStrength = 45 + (seed * 3) % 50;
+    }
+    if (state.mode === 'dither') {
+      state.pattern = DITHER_PATTERNS[seed % DITHER_PATTERNS.length];
+      state.ditherScale = 1 + seed % 8;
+      state.ditherBias = seed % 31 - 15;
+    }
+    if (state.mode === 'cube') {
+      state.cubeCount = 7 + seed % 17;
+      state.cubeDirection *= -1;
+    }
+    if (state.mode === 'bands') {
+      state.bandScale = 10 + seed % 50;
+      state.bandGap = seed % 45;
+      state.bandOffset = (state.bandOffset + 17 + seed) % 101;
+    }
   }
   commit();
   animateStageChange();
@@ -743,6 +895,13 @@ document.addEventListener('keydown', (event) => {
     commit();
     animateStageChange();
   }
+  if (event.key === '[' || event.key === ']') {
+    const direction = event.key === '[' ? -1 : 1;
+    state.mode = MODES[(MODES.indexOf(state.mode) + direction + MODES.length) % MODES.length];
+    commit();
+    animateStageChange();
+    modeRail.querySelector('.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 });
 document.querySelector('#share-state').addEventListener('click', async () => {
   persist();
@@ -755,7 +914,7 @@ function updateExportAvailability() {
   const cssSupported = !['air', 'dither', 'cube', 'plane', 'catalogue'].includes(state.mode);
   cssButton.disabled = !cssSupported;
   cssButton.title = cssSupported ? 'Copy CSS background' : `${MODE_LABELS[state.mode]} has no faithful CSS equivalent`;
-  const rasterBackedSvg = ['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) || state.gradientType === 'conic';
+  const rasterBackedSvg = ['dither', 'air', 'cube', 'plane', 'catalogue', 'bands', 'contrast'].includes(state.mode) || state.gradientType === 'conic';
   document.querySelector('#export-note').textContent = rasterBackedSvg
     ? 'Raster exports render locally. SVG embeds the current rendered frame for this mode. No source leaves this browser.'
     : 'Raster and vector exports render locally. No source leaves this browser.';
@@ -840,11 +999,33 @@ exportScrim.addEventListener('click', () => toggleExport(false));
 mobileExportQuery.addEventListener('change', () => {
   if (!exportPanel.hidden) toggleExport(false);
 });
+function fitPreviewFrame() {
+  if (innerWidth <= 1020) {
+    previewStage.style.removeProperty('width');
+    previewStage.style.removeProperty('height');
+    return;
+  }
+  const stageColumn = previewStage.closest('.stage-column');
+  const stageStyle = getComputedStyle(stageColumn);
+  const availableWidth = stageColumn.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight);
+  const specimenRegister = document.querySelector('#specimen-register');
+  const occupiedHeight = document.querySelector('.stage-caption').offsetHeight + (specimenRegister.hidden ? 0 : specimenRegister.offsetHeight);
+  const availableHeight = stageColumn.clientHeight - parseFloat(stageStyle.paddingTop) - parseFloat(stageStyle.paddingBottom) - occupiedHeight;
+  const widthInput = Number(document.querySelector('#export-width').value);
+  const heightInput = Number(document.querySelector('#export-height').value);
+  const ratio = Number.isFinite(widthInput / heightInput) && heightInput > 0 ? widthInput / heightInput : 16 / 9;
+  const width = Math.max(120, Math.min(availableWidth, Math.max(80, availableHeight) * ratio));
+  const height = width / ratio;
+  previewStage.style.width = `${Math.floor(width)}px`;
+  previewStage.style.height = `${Math.floor(height)}px`;
+}
+
 function updatePreviewAspect() {
   const width = Number(document.querySelector('#export-width').value);
   const height = Number(document.querySelector('#export-height').value);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
   previewStage.style.setProperty('--frame-ratio', `${clamp(width, 64, 4096)} / ${clamp(height, 64, 4096)}`);
+  fitPreviewFrame();
 }
 document.querySelectorAll('#export-width, #export-height').forEach((input) => input.addEventListener('input', updatePreviewAspect));
 document.querySelectorAll('[data-export-size]').forEach((button) => {
@@ -888,7 +1069,7 @@ function downloadBlob(blob, extension) {
 function svgForCurrent(canvasOutput, width, height, labels) {
   const recipe = state.mode === 'traditional' ? RECIPES[state.recipe] : state;
   const type = recipe.type ?? state.gradientType;
-  const standard = !labels && !['dither', 'air', 'cube', 'plane', 'catalogue'].includes(state.mode) && type !== 'conic';
+  const standard = !labels && !['dither', 'air', 'cube', 'plane', 'catalogue', 'bands', 'contrast'].includes(state.mode) && type !== 'conic';
   if (!standard) return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image width="100%" height="100%" href="${canvasOutput.toDataURL('image/png')}"/></svg>`;
   const stops = getModeStops(state).map((stop) => `<stop offset="${stop.position}%" stop-color="${stop.hex ?? COLORS[stop.color].hex}"/>`).join('');
   const centerX = width * ((recipe.centerX ?? state.centerX) / 100);
@@ -992,8 +1173,9 @@ previewStage.addEventListener('pointerup', (event) => {
     const rows = Math.ceil(COLORS.length / columns);
     const column = clamp(Math.floor((event.clientX - rect.left) / rect.width * columns), 0, columns - 1);
     const row = clamp(Math.floor((event.clientY - rect.top) / rect.height * rows), 0, rows - 1);
-    const index = row * columns + column;
-    if (index < COLORS.length) {
+    const gridIndex = row * columns + column;
+    const index = sortColourIndices(state.catalogueSort)[gridIndex];
+    if (index != null) {
       state.stops[1].color = index;
       state.mode = 'make';
       commit();
@@ -1062,6 +1244,8 @@ window.addEventListener('hashchange', () => {
   if (next) { state = next; commit(); }
 });
 new ResizeObserver(resizeCanvas).observe(previewStage);
+new ResizeObserver(fitPreviewFrame).observe(previewStage.closest('.stage-column'));
+window.addEventListener('resize', fitPreviewFrame);
 updateNav();
 renderControls();
 renderLedger();
