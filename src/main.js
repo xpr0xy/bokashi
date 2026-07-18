@@ -202,7 +202,14 @@ function updateNav() {
   document.querySelectorAll('[data-mode]').forEach((button) => {
     const active = button.dataset.mode === state.mode;
     button.classList.toggle('is-active', active);
-    button.setAttribute('aria-current', active ? 'page' : 'false');
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('[data-mode-index]').forEach((button) => {
+    const active = button.dataset.modeIndex === state.mode;
+    button.classList.toggle('is-active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
   });
   document.querySelector('#mode-readout').textContent = MODE_LABELS[state.mode].toUpperCase();
   requestAnimationFrame(revealActiveMode);
@@ -229,7 +236,7 @@ function commonGeometry() {
   return `<div class="control-group">
     <div class="section-heading"><h2>Geometry</h2><span>${state.angle}°</span></div>
     <div class="segmented" role="group" aria-label="Gradient type">
-      ${['linear', 'radial', 'conic'].map((type) => `<button type="button" data-gradient-type="${type}" class="${state.gradientType === type ? 'is-active' : ''}">${type}</button>`).join('')}
+      ${['linear', 'radial', 'conic'].map((type) => `<button type="button" data-gradient-type="${type}" class="${state.gradientType === type ? 'is-active' : ''}" aria-pressed="${state.gradientType === type}">${type}</button>`).join('')}
     </div>
     <label>Angle <output>${state.angle}°</output><input type="range" min="0" max="360" value="${state.angle}" data-state="angle"></label>
     ${state.gradientType !== 'linear' ? `<div class="field-pair"><label>Center X<input type="number" min="0" max="100" value="${state.centerX}" data-state="centerX"></label><label>Center Y<input type="number" min="0" max="100" value="${state.centerY}" data-state="centerY"></label></div>` : ''}
@@ -294,9 +301,9 @@ function renderControls() {
       <label>Phase <output>${Math.round(state.cubePhase * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${state.cubePhase}" data-state="cubePhase"></label>
       <label>Phase multiplier <output>${state.cubeSpeed.toFixed(2)}×</output><input type="range" min="0.1" max="1.5" step="0.05" value="${state.cubeSpeed}" data-state="cubeSpeed"></label>
       <label>Depth <output>${state.cubeCount}</output><input type="range" min="4" max="24" value="${state.cubeCount}" data-state="cubeCount"></label>
-      <div class="segmented" role="group" aria-label="Sequence direction"><button type="button" data-cube-direction="1" class="${state.cubeDirection === 1 ? 'is-active' : ''}">Outward</button><button type="button" data-cube-direction="-1" class="${state.cubeDirection === -1 ? 'is-active' : ''}">Inward</button></div></div>`;
+      <div class="segmented" role="group" aria-label="Sequence direction"><button type="button" data-cube-direction="1" class="${state.cubeDirection === 1 ? 'is-active' : ''}" aria-pressed="${state.cubeDirection === 1}">Outward</button><button type="button" data-cube-direction="-1" class="${state.cubeDirection === -1 ? 'is-active' : ''}" aria-pressed="${state.cubeDirection === -1}">Inward</button></div></div>`;
   } else if (state.mode === 'image') {
-    const sourceTabs = `<div class="control-group source-switcher"><div class="section-heading"><h2>Source</h2><span>LOCAL</span></div><div class="segmented" role="group" aria-label="Palette source">${[['image', 'Image'], ['feeling', 'Feeling'], ['audio', 'Audio']].map(([type, label]) => `<button type="button" data-source-type="${type}" class="${state.sourceType === type ? 'is-active' : ''}">${label}</button>`).join('')}</div></div>`;
+    const sourceTabs = `<div class="control-group source-switcher"><div class="section-heading"><h2>Source</h2><span>LOCAL</span></div><div class="segmented" role="group" aria-label="Palette source">${[['image', 'Image'], ['feeling', 'Feeling'], ['audio', 'Audio']].map(([type, label]) => `<button type="button" data-source-type="${type}" class="${state.sourceType === type ? 'is-active' : ''}" aria-pressed="${state.sourceType === type}">${label}</button>`).join('')}</div></div>`;
     const sourcePanel = state.sourceType === 'image' ? `<div class="control-group"><div class="section-heading"><h2>Image sampler</h2><span>LOCAL</span></div>
       <div class="field-pair"><label>Colours<select data-state="imagePaletteCount">${[2, 3, 4, 5].map((count) => `<option value="${count}" ${count === state.imagePaletteCount ? 'selected' : ''}>${count}</option>`).join('')}</select></label><label>Order<select data-state="imageSort"><option value="dominance" ${state.imageSort === 'dominance' ? 'selected' : ''}>dominance</option><option value="luminance" ${state.imageSort === 'luminance' ? 'selected' : ''}>luminance</option></select></label></div>
       <label class="drop-zone" data-drop-kind="image">Drop or choose image<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"></label><p class="microcopy" id="image-status" role="status" aria-live="polite">${analysisStatus.image || `Extract ${state.imagePaletteCount} dominant colours and match them to the catalogue.`}</p>${sampledImage ? '<button type="button" id="clear-source">Clear source evidence</button>' : ''}</div>`
@@ -307,7 +314,7 @@ function renderControls() {
   } else if (state.mode === 'plane') {
     const selected = state.planeSelected == null ? null : COLORS[state.planeSelected];
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Colour plane</h2><span>${state.planeSpace.toUpperCase()}</span></div>
-      <div class="segmented" role="group" aria-label="Colour space"><button type="button" data-plane-space="hsl" class="${state.planeSpace === 'hsl' ? 'is-active' : ''}">HSL</button><button type="button" data-plane-space="rgb" class="${state.planeSpace === 'rgb' ? 'is-active' : ''}">RGB</button></div>
+      <div class="segmented" role="group" aria-label="Colour space"><button type="button" data-plane-space="hsl" class="${state.planeSpace === 'hsl' ? 'is-active' : ''}" aria-pressed="${state.planeSpace === 'hsl'}">HSL</button><button type="button" data-plane-space="rgb" class="${state.planeSpace === 'rgb' ? 'is-active' : ''}" aria-pressed="${state.planeSpace === 'rgb'}">RGB</button></div>
       <p>Drag the field to rotate. Use arrow keys when the field is focused. Select a point to inspect it.</p>${selected ? `<button class="colour-hero" type="button" data-plane-use style="--swatch:${selected.hex};--swatch-text:${contrastText(selected.hex)}"><span>${selected.kanji}</span><strong>${selected.romaji}</strong><code>${selected.hex}</code><small>Use in maker</small></button>` : '<p class="plane-empty">No point selected.</p>'}</div>`;
   } else if (state.mode === 'catalogue') {
     controls.innerHTML = `<div class="control-group"><div class="section-heading"><h2>Catalogue</h2><span>${COLORS.length}</span></div><label>Search<input id="colour-search" type="search" value="${colourQuery}" placeholder="kanji, romaji or #hex" autocomplete="off"></label>

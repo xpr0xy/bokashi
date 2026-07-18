@@ -238,6 +238,8 @@ label output { float: right; color: var(--ink); }
 .mode-index-dialog [data-mode-index] span, .mode-index-dialog [data-mode-index] small { font: .5rem var(--mono); text-transform: uppercase; }
 .mode-index-dialog [data-mode-index] strong { font-size: .72rem; }
 .mode-index-dialog [data-mode-index] small { grid-column: 2; color: var(--muted); }
+.mode-index-dialog [data-mode-index].is-active { background: var(--ink); color: var(--paper); }
+.mode-index-dialog [data-mode-index].is-active small { color: rgba(241,239,232,.72); }
 
 .site-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1rem 1.4rem 2rem; color: var(--muted); font-size: .58rem; line-height: 1.5; }
 .site-footer p { margin: 0; max-width: 42rem; }
