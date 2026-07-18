@@ -466,7 +466,7 @@ export function harmonyPalette(state) {
 export function contrastRatio(first, second) {
   const bright = Math.max(luminance(first), luminance(second));
   const dark = Math.min(luminance(first), luminance(second));
-  return Number(((bright + 0.05) / (dark + 0.05)).toFixed(2));
+  return (bright + 0.05) / (dark + 0.05);
 }
 
 export function projectColourPlane(width, height, rotation = DEFAULT_STATE.planeRotation, space = DEFAULT_STATE.planeSpace) {
